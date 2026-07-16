@@ -38,11 +38,11 @@ def main():
     
     with col1:
         st.info("**1. Global Watch & Ontology**\n\nMonitor official sources automatically and map them to your specific product taxonomy.")
-        st.success("**2. Risk Mapping & Impact**\n\nCross-reference incoming alerts with your hardware catalogue to identify compliance gaps.")
+        st.warning("**3. Legal Sheet Updater**\n\nMaintain your conformity documentation up-to-date with AI-driven text suggestions.")
         
     with col2:
-        st.warning("**3. R&D Requirements**\n\nGenerate instant design rules, testing protocols, and marking requirements for your engineering teams.")
-        st.error("**4. Legal Sheet Updater**\n\nMaintain your conformity documentation up-to-date with AI-driven text suggestions.")
+        st.success("**2. Risk Mapping & Impact**\n\nCross-reference incoming alerts with your hardware catalogue to identify compliance gaps.")
+        st.error("**4. R&D Requirements**\n\nGenerate instant design rules, testing protocols, and marking requirements for your engineering teams.")
 
     st.divider()
     
