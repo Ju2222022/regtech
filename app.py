@@ -29,7 +29,7 @@ init_session_state()
 # 3. Construction de l'interface principale (Landing Page)
 def main():
     st.title("🛡️ RegWatch Platform")
-    st.markdown("### The Last Mile of Product Compliance")
+    st.markdown("### AI Driven compliance")
     
     st.divider()
     
