@@ -1,1 +1,83 @@
-
+{
+  "_meta": {
+    "version": "2.2_FINAL",
+    "description": "RegWatch Matrix populated with real-world electronics ontology blueprints",
+    "tenant_id": "client_unique_uuid_12345"
+  },
+  "tenant_profile": {
+    "company_name": "Decathlon Sandbox Test",
+    "industry_sector": "Sports & Consumer Electronics"
+  },
+  "global_routing_rules": {
+    "has_mandatory_fallback": true,
+    "mandatory_fallback_category_id": "SUB_CAT_STD_ELEC",
+    "fallback_justification_prompt_blueprint": "IA Guideline: Every hardware product must implement standard electronics restrictions (RoHS, REACH, EMC, WEEE) as a baseline safety net.",
+    "allow_multi_labeling": true
+  },
+  "defined_ontology": [
+    {
+      "category_id": "SUB_CAT_STD_ELEC",
+      "category_label": "Standard Electronics (Universal Base)",
+      "internal_owner_group": "Hardware Compliance Team",
+      "default_criticality": "MEDIUM",
+      "business_definition": "Any standard electronic product or sub-assembly excluding dedicated standalone power sources.",
+      "operational_scope": "Universal base compliance checklist for active hardware components.",
+      "matching_engine_config": {
+        "strict_technical_attributes": ["electronic", "electrical", "pcb", "hardware"],
+        "fuzzy_keywords_fallbacks": ["device", "gadget", "pedometer", "stopwatch"]
+      },
+      "expected_deliverables": [
+        "CE/UKCA Declaration of Conformity",
+        "RoHS Substance Verification Report",
+        "WEEE Registration Certificate"
+      ],
+      "reference_legal_framework": [
+        "RoHS Directive 2011/65/EU",
+        "REACH Regulation EC 1907/2006",
+        "EMC Directive 2014/30/EU",
+        "WEEE Directive 2012/19/EU"
+      ]
+    },
+    {
+      "category_id": "SUB_CAT_BAT_COIN",
+      "category_label": "Coin Cells & Button Batteries",
+      "internal_owner_group": "Energy & Power Storage Squad",
+      "default_criticality": "HIGH",
+      "business_definition": "Lithium or alkaline button/coin batteries used as primary energy storage.",
+      "operational_scope": "Triggers strict child safety frameworks to mitigate swallowing hazards.",
+      "matching_engine_config": {
+        "strict_technical_attributes": ["coin_cell", "button_battery", "cr2032", "lithium_coin"],
+        "fuzzy_keywords_fallbacks": ["small_battery", "cell_battery", "remote_battery"]
+      },
+      "expected_deliverables": [
+        "Child-Resistant Packaging Compliance Certificate",
+        "Mechanical Safety Test Report (Battery Compartment Evaluation)"
+      ],
+      "reference_legal_framework": [
+        "Reese's Law (15 U.S.C. § 2056e) - US",
+        "General Product Safety Regulation (GPSR) - EU"
+      ]
+    },
+    {
+      "category_id": "SUB_CAT_FRONTIER_TOY",
+      "category_label": "Electric Toys & Child Play Equipment",
+      "internal_owner_group": "Junior & Toy Safety Board",
+      "default_criticality": "HIGH",
+      "business_definition": "Any electronic product designed or intended, whether or not exclusively, for use in play by children under 14 years of age.",
+      "operational_scope": "Stricter legal status overriding or adding to standard consumer electronics frameworks.",
+      "matching_engine_config": {
+        "strict_technical_attributes": ["toy_safety", "child_use", "under_14"],
+        "fuzzy_keywords_fallbacks": ["kids_game", "playtime", "electronic_toy", "junior"]
+      },
+      "expected_deliverables": [
+        "Toy Safety Declaration of Conformity",
+        "EN 62115 Electrical Test Report",
+        "Stricter Heavy Metals and Phthalates Chemical Analysis"
+      ],
+      "reference_legal_framework": [
+        "Toy Safety Directive 2009/48/EC",
+        "EN 62115 (Electric Toys - Safety Requirements)"
+      ]
+    }
+  ]
+}
