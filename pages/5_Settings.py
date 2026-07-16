@@ -41,38 +41,26 @@ def main():
             
             # 2. Affichage des "Dossiers" et "Sous-Dossiers"
             for perimeter_name, sub_categories in folders.items():
-                st.markdown(f"### 📁 {perimeter_name}") # Le dossier principal
+                st.markdown(f"### 📁 {perimeter_name}")
                 
                 for cat in sub_categories:
                     label = cat.get('category_label', 'Unnamed')
                     cat_id = cat.get('category_id', 'NO_ID')
                     
-                    # Le tiroir de la catégorie
+                    # Le tiroir de la catégorie (Épuré)
                     with st.expander(f"📄 {label}  |  ID: {cat_id}"):
                         st.write(f"**Definition:** {cat.get('business_definition', '')}")
                         st.write(f"**Scope:** {cat.get('operational_scope', '')}")
                         
                         st.divider()
-                        col_trig, col_deliv = st.columns(2)
                         
-                        with col_trig:
-                            st.markdown("**🔍 Semantic Triggers**")
-                            st.json(cat.get("matching_engine_config", {}))
-                            
-                        with col_deliv:
-                            st.markdown("**📋 Expected Deliverables**")
-                            for item in cat.get("expected_deliverables", []):
-                                st.markdown(f"- {item}")
-                        
-                        st.divider()
-                        # 3. La barre d'actions de l'Admin
+                        # 3. La barre d'actions de l'Admin (Plus claire)
                         col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
                         with col_edit:
-                            st.button("✏️ Edit", key=f"edit_{cat_id}")
+                            st.button("⚙️ Configure Triggers & Details", key=f"edit_{cat_id}")
                         with col_dup:
                             st.button("📑 Duplicate", key=f"dup_{cat_id}")
                         with col_del:
-                            # Utilisation du type "primary" pour le bouton supprimer (rouge dans Streamlit)
                             st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary")
 
         st.divider()
@@ -89,13 +77,10 @@ def main():
                     new_id = st.text_input("Unique ID", placeholder="e.g., SUB_CAT_LASER")
                     new_framework = st.text_input("Base Framework", placeholder="e.g., Laser Safety Class 1")
                 
-                st.markdown("**Matching Configuration (Comma separated)**")
-                new_strict = st.text_area("Strict Attributes", placeholder="laser, telemeter, optical_sensor")
-                
-                submitted = st.form_submit_button("Create & Save to Engine", type="primary")
+                submitted = st.form_submit_button("Create Skeleton", type="primary")
                 if submitted:
                     st.success("Form submitted! (Backend save function will be wired next).")
-
+                    
     # ---------------------------------------------------------
     # ONGLET 2 : PROFIL (Désormais éditable)
     # ---------------------------------------------------------
