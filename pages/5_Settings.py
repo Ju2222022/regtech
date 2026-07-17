@@ -1,6 +1,7 @@
 import streamlit as st
 import sys
 import os
+import copy
 
 # Connexion au moteur backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -19,20 +20,19 @@ def main():
     # On passe l'Ontologie en premier onglet car c'est le cœur du métier
     tab1, tab2, tab3 = st.tabs(["🗂️ Ontology Builder", "🏢 Tenant Profile", "🌐 Global Rules"])
 
-   # ---------------------------------------------------------
+    # ---------------------------------------------------------
     # ONGLET 1 : ONTOLOGIE (Vue Arborescente et Édition)
     # ---------------------------------------------------------
     with tab1:
         st.subheader("Ontology Tree View")
         st.markdown("Your regulatory perimeters and sub-categories are grouped by internal owner.")
         
-        # Initialisation du mode édition dans le cache de la page
         if "editing_category" not in st.session_state:
             st.session_state["editing_category"] = None
 
         categories = ref_manager.get_categories()
         
-        # === BLOC ÉDITION (S'affiche uniquement si on a cliqué sur Modify) ===
+        # === BLOC ÉDITION ===
         if st.session_state["editing_category"]:
             cat_to_edit = ref_manager.get_category_by_id(st.session_state["editing_category"])
             
@@ -50,19 +50,18 @@ def main():
                     with col_label:
                         edit_label = st.text_input("Sub-Category Label", value=cat_to_edit.get('category_label', ''))
                     with col_id:
-                        # L'ID est désactivé pour éviter de casser la base de données
                         st.text_input("Unique ID (Cannot be changed)", value=cat_to_edit.get('category_id', ''), disabled=True)
                     
                     edit_def = st.text_area("Business Definition", value=cat_to_edit.get('business_definition', ''))
                     
                     st.markdown("**Matching Configuration (Comma separated)**")
                     config = cat_to_edit.get("matching_engine_config", {})
-                    # Transformation des listes en texte pour le formulaire
                     str_strict = ", ".join(config.get("strict_technical_attributes", []))
                     str_fuzzy = ", ".join(config.get("fuzzy_keywords_fallbacks", []))
                     
-                    edit_strict = st.text_area("Strict Attributes", value=str_strict)
-                    edit_fuzzy = st.text_area("Fuzzy Keywords", value=str_fuzzy)
+                    # Mise à jour UX : Termes plus clairs et optionnels
+                    edit_strict = st.text_area("Strict Attributes (Optional)", value=str_strict)
+                    edit_fuzzy = st.text_area("Keywords (Optional)", value=str_fuzzy)
                     
                     col_submit, col_cancel = st.columns([1, 5])
                     with col_submit:
@@ -75,27 +74,23 @@ def main():
                         st.rerun()
                         
                     if submitted:
-                        # Reconstruction de la fiche avec les nouvelles données
                         cat_to_edit["perimeter"] = edit_perimeter
                         cat_to_edit["internal_owner_group"] = edit_group
                         cat_to_edit["category_label"] = edit_label
                         cat_to_edit["business_definition"] = edit_def
                         
-                        # Re-transformation du texte en listes propres pour le JSON
                         cat_to_edit["matching_engine_config"]["strict_technical_attributes"] = [x.strip() for x in edit_strict.split(",") if x.strip()]
                         cat_to_edit["matching_engine_config"]["fuzzy_keywords_fallbacks"] = [x.strip() for x in edit_fuzzy.split(",") if x.strip()]
                         
                         if ref_manager.update_category(cat_to_edit):
                             st.session_state["editing_category"] = None
-                            st.success("Successfully updated!")
                             st.rerun()
                 st.divider()
 
-        # === BLOC AFFICHAGE NORMAL (Caché si on est en édition) ===
+        # === BLOC AFFICHAGE NORMAL ===
         elif not categories:
             st.info("No categories defined. Start building your ontology below.")
         else:
-            # 1. Regroupement intelligent
             tree = {}
             for cat in categories:
                 perimeter = cat.get('perimeter', 'Uncategorized Perimeter')
@@ -108,7 +103,6 @@ def main():
                     
                 tree[perimeter][group].append(cat)
             
-            # 2. Affichage dynamique
             for perimeter_name, groups in tree.items():
                 st.markdown(f"## 🌍 {perimeter_name}")
                 
@@ -126,21 +120,28 @@ def main():
                             st.divider()
                             col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
                             with col_edit:
-                                # ACTION : Passer en mode édition
                                 if st.button("✏️ Modify", key=f"edit_{cat_id}"):
                                     st.session_state["editing_category"] = cat_id
                                     st.rerun()
                             with col_dup:
-                                st.button("📑 Duplicate", key=f"dup_{cat_id}")
+                                # ACTION : Dupliquer fonctionnel avec copy.deepcopy
+                                if st.button("📑 Duplicate", key=f"dup_{cat_id}"):
+                                    import copy
+                                    new_cat = copy.deepcopy(cat)
+                                    new_cat["category_id"] = f"{cat_id}_COPY"
+                                    new_cat["category_label"] = f"{label} (Copy)"
+                                    if ref_manager.add_category(new_cat):
+                                        st.rerun()
+                                    else:
+                                        st.error("A copy already exists. Please modify its ID first before duplicating again.")
                             with col_del:
-                                # ACTION : Supprimer
                                 if st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary"):
                                     if ref_manager.delete_category(cat_id):
                                         st.rerun()
                     
                 st.divider()
         
-        # 3. Formulaire d'ajout (Caché pendant l'édition pour ne pas polluer l'écran)
+        # 3. Formulaire d'ajout
         if not st.session_state["editing_category"]:
             st.subheader("➕ Add New Sub-Category")
             with st.expander("Open Category Creator Form"):
@@ -179,7 +180,7 @@ def main():
                                 st.rerun()
                             else:
                                 st.error("Error: This ID already exists.")
-                    
+    
     # ---------------------------------------------------------
     # ONGLET 2 : PROFIL (Désormais éditable)
     # ---------------------------------------------------------
