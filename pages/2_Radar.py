@@ -15,7 +15,7 @@ from core.agents.classifier import ProductClassifierAgent
 st.set_page_config(page_title="Product Screening | RegWatch", page_icon="🎯", layout="wide")
 
 # ==========================================
-# FONCTIONS DE SCRAPING (Inspirées de profiler.py)
+# FONCTIONS DE SCRAPING (Version Robuste)
 # ==========================================
 def _tavily_search(query: str, tavily_key: str, max_results: int = 5) -> list:
     payload = json.dumps({"api_key": tavily_key, "query": query, "max_results": max_results, "search_depth": "advanced", "include_answer": False}).encode()
@@ -23,13 +23,16 @@ def _tavily_search(query: str, tavily_key: str, max_results: int = 5) -> list:
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read()).get("results", [])
-    except Exception:
+    except Exception as e:
+        st.error(f"Tavily Error: {str(e)}")
         return []
 
 def _fetch_jina(url: str) -> str:
     try:
         jina_url = f"https://r.jina.ai/{url}"
-        req = urllib.request.Request(jina_url, headers={"Accept": "text/plain", "X-Return-Format": "text"}, method="GET")
+        # Ajout d'un User-Agent pour éviter le blocage par certains serveurs
+        headers = {"Accept": "text/plain", "X-Return-Format": "text", "User-Agent": "Mozilla/5.0"}
+        req = urllib.request.Request(jina_url, headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=20) as resp:
             content = resp.read().decode("utf-8", errors="ignore")
         cut = 2500
@@ -37,11 +40,10 @@ def _fetch_jina(url: str) -> str:
             idx = content.find(marker)
             if 0 < idx < cut: cut = idx
         return content[:cut]
-    except Exception:
+    except Exception as e:
         return ""
 
 def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain: str) -> dict:
-    """Utilise Gemini pour extraire le profil technique JSON depuis les snippets."""
     system_prompt = """You are Agent 2, a product technology profiler for Decathlon Electronics.
     Given web search snippets about a product, extract a structured technology profile. Focus ONLY on factual technical information. Do NOT invent.
     Respond ONLY with valid JSON matching this structure:
@@ -62,7 +64,6 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         return {"error": str(e)}
 
 def profile_to_text(profile: dict, code: str) -> str:
-    """Transforme le JSON structuré en un brief texte pour l'Agent Classifier."""
     techs = profile.get("technologies", {})
     all_info = techs.get("wireless", []) + techs.get("power", []) + techs.get("sensors", []) + techs.get("connectivity", [])
     desc = profile.get("description", "")
@@ -79,21 +80,22 @@ def main():
     ref_manager = ReferentialManager()
     classifier_agent = ProductClassifierAgent(ref_manager)
 
-    # Variables de session pour gérer l'affichage
     if "final_brief" not in st.session_state:
         st.session_state["final_brief"] = ""
     if "scraped_profile" not in st.session_state:
         st.session_state["scraped_profile"] = None
+    if "raw_snippets" not in st.session_state:
+        st.session_state["raw_snippets"] = ""
 
-    # --- MODULE 1 : DECATHLON EXPERT MODE (TAVILY) ---
-    with st.expander("🛠️ Decathlon Expert Mode (Web Scraping & Bulk CSV)", expanded=False):
+    # --- MODULE 1 : DECATHLON EXPERT MODE ---
+    with st.expander("🛠️ Decathlon Expert Mode (Web Scraping & Bulk CSV)", expanded=True):
         tab_single, tab_bulk = st.tabs(["🔍 Single Product Profiler", "📂 Bulk CSV Upload"])
         
         with tab_single:
             st.markdown("Enter a Model Code to automatically draft the product brief using live web data.")
             col1, col2 = st.columns(2)
             with col1:
-                model_code = st.text_input("Model Code (e.g., 8525208)")
+                model_code = st.text_input("Model Code (e.g., 8525208, 8759214)")
             with col2:
                 domain = st.text_input("Target Domain", value="decathlon.fr")
                 
@@ -104,43 +106,58 @@ def main():
                     try:
                         tavily_key = st.secrets["TAVILY_API_KEY"]
                         with st.spinner("Scraping Decathlon & extracting technical profile..."):
-                            # 1. Search
-                            results = _tavily_search(f"{model_code} {domain}", tavily_key)
-                            best_url = results[0].get("url", "") if results else ""
-                            jina_content = _fetch_jina(best_url) if best_url else ""
                             
-                            snippets = f"[Jina]\n{jina_content}\n\n" if jina_content else ""
-                            for r in results[:3]:
-                                snippets += f"[{r.get('title')}]\n{r.get('content')}\n\n"
+                            # 1. Recherche plus intelligente
+                            results = _tavily_search(f"Decathlon {model_code} {domain}", tavily_key)
                             
-                            # 2. Extract with Gemini
-                            profile = extract_tech_profile_with_gemini(snippets, model_code, domain)
-                            
-                            # 3. Save to state
-                            st.session_state["scraped_profile"] = profile
-                            st.session_state["final_brief"] = profile_to_text(profile, model_code)
-                            st.success("Drafting complete! Review the brief below and launch the analysis.")
+                            if not results:
+                                st.error("No results found on the web for this code.")
+                            else:
+                                # Recherche de la meilleure URL (page produit)
+                                best_url = ""
+                                for r in results:
+                                    u = r.get("url", "")
+                                    if "/p/" in u or "/product/" in u or model_code in u:
+                                        best_url = u
+                                        break
+                                if not best_url:
+                                    best_url = results[0].get("url", "")
+
+                                # Fetching
+                                jina_content = _fetch_jina(best_url) if best_url else ""
+                                
+                                snippets = f"[Jina Source: {best_url}]\n{jina_content}\n\n" if jina_content else ""
+                                for r in results[:3]:
+                                    snippets += f"[{r.get('title')}]\n{r.get('content')}\n\n"
+                                
+                                st.session_state["raw_snippets"] = snippets # Sauvegarde pour debug
+                                
+                                # 2. Extraction avec Gemini
+                                profile = extract_tech_profile_with_gemini(snippets, model_code, domain)
+                                
+                                st.session_state["scraped_profile"] = profile
+                                st.session_state["final_brief"] = profile_to_text(profile, model_code)
+                                st.success("Drafting complete! Review the brief below and launch the analysis.")
+                                st.rerun()
+
                     except KeyError:
                         st.error("TAVILY_API_KEY missing in Streamlit Secrets.")
 
         with tab_bulk:
             st.info("Batch processing will analyze multiple codes and output a consolidated Excel report.")
-            # Bouton pour télécharger le template
             df_template = pd.DataFrame({"model_code": ["8525208", "8554912"], "domain_hint": ["decathlon.fr", "decathlon.fr"]})
             csv = df_template.to_csv(index=False).encode('utf-8')
             st.download_button("⬇️ Download CSV Template", data=csv, file_name="regwatch_bulk_template.csv", mime="text/csv")
-            
             uploaded_file = st.file_uploader("Upload filled CSV", type=["csv"])
             if uploaded_file and st.button("Run Bulk Analysis"):
                 st.warning("Bulk engine UI is currently being wired. Check back in the next version!")
 
     st.divider()
 
-    # --- MODULE 2 : THE RADAR (MANUAL OR AUTO-FILLED) ---
+    # --- MODULE 2 : THE RADAR ---
     st.subheader("1. Product Brief")
     
     with st.form("screening_form"):
-        # La text area se pré-remplit si on a utilisé le scraper juste avant
         product_desc = st.text_area(
             "Technical Specs or Use Case (Edit freely before analysis)", 
             value=st.session_state["final_brief"],
@@ -149,10 +166,15 @@ def main():
         )
         submitted = st.form_submit_button("Launch Regulatory Analysis", type="primary")
 
+    # --- MODULE DEBUG (Pour comprendre ce que l'IA a lu) ---
+    if st.session_state["raw_snippets"]:
+        with st.expander("🔍 Debug: View Raw Web Scraped Data"):
+            st.text_area("What the scraper found:", value=st.session_state["raw_snippets"], height=200, disabled=True)
+
     # --- MODULE 3 : AFFICHAGE DU RAPPORT ---
     if submitted:
-        if not product_desc.strip():
-            st.error("Please provide a product description.")
+        if not product_desc.strip() or product_desc.strip() == "Product Code : Unknown. . Key tech: . Primary function: .":
+            st.error("Please provide a valid product description.")
         else:
             with st.spinner("🧠 AI is mapping product specs to your ontology..."):
                 result = classifier_agent.analyze_product(product_desc)
@@ -163,9 +185,8 @@ def main():
                     st.success("Analysis Complete!")
                     st.divider()
                     
-                    # Affichage du profil technique si le scraper a été utilisé
                     if st.session_state["scraped_profile"] and not "error" in st.session_state["scraped_profile"]:
-                        with st.expander("🛠️ View Raw Extracted Tech Profile (JSON)"):
+                        with st.expander("🛠️ View Structured Tech Profile (JSON)"):
                             st.json(st.session_state["scraped_profile"])
                             
                     st.markdown("### 🤖 AI Product Understanding")
