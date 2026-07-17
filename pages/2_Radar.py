@@ -7,6 +7,7 @@ import urllib.error
 import pandas as pd
 import google.generativeai as genai
 import re
+import requests
 
 # Connexion au backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -65,30 +66,27 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     prompt = f"{system_prompt}\n\nModel code: {model_code}\nDomain: {domain}\n\nSearch snippets:\n{snippets_text[:4000]}"
     
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        api_key = st.secrets["GEMINI_API_KEY"]
+        # On attaque directement le serveur de Google sans passer par leur SDK instable
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
-        # Récupération de tous les modèles disponibles
-        all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1}
+        }
         
-        # FILTRE : On exclut activement les versions problématiques comme la 2.5-flash
-        valid_models = [m for m in all_models if "gemini-2.5-flash" not in m]
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(url, headers=headers, json=payload)
         
-        if not valid_models:
-            return {"error": "No valid generative models available for this key."}
+        if response.status_code != 200:
+            return {"error": f"HTTP {response.status_code}: {response.text}"}
             
-        # STRATÉGIE : On cherche la version 1.5-flash en priorité, sinon n'importe quel autre Flash stable, sinon le premier de la liste
-        target_model = next((m for m in valid_models if "1.5-flash" in m), None)
-        if not target_model:
-            target_model = next((m for m in valid_models if "flash" in m), valid_models[0])
-            
-        clean_model_name = target_model.replace("models/", "")
-        model = genai.GenerativeModel(clean_model_name)
-        
-        response = model.generate_content(prompt)
-        return clean_json_output(response.text)
+        data = response.json()
+        raw_text = data['candidates'][0]['content']['parts'][0]['text']
+        return clean_json_output(raw_text)
         
     except Exception as e:
-        return {"error": f"API Error: {str(e)}"}
+        return {"error": f"Direct API Error: {str(e)}"}
 
 def profile_to_text(profile: dict, code: str) -> str:
     techs = profile.get("technologies", {})
