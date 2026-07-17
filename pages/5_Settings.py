@@ -1,102 +1,207 @@
 import streamlit as st
 import sys
 import os
-import json
-from collections import defaultdict
+import copy
+import uuid
 
-# Connexion au backend
+# Connexion au moteur backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from core.referential import ReferentialManager
 
 st.set_page_config(page_title="Settings | RegWatch", page_icon="⚙️", layout="wide")
 
 def main():
-    st.title("⚙️ Regulatory Ontology Settings")
-    st.markdown("Manage your compliance perimeters, categories, and sub-categories.")
+    st.title("⚙️ Platform Settings (Super Admin)")
+    st.markdown("Manage your ontology structure, tenant profile, and global logic.")
 
+    # Initialisation du gestionnaire de données
     ref_manager = ReferentialManager()
-    categories = ref_manager.get_categories()
+    data = ref_manager.data
 
-    # ==========================================
-    # LOGIQUE DE GROUPEMENT (Mise à jour des variables)
-    # ==========================================
-    # On groupe d'abord par "Macro Perimeter", puis par "Category Label"
-    grouped_data = defaultdict(lambda: defaultdict(list))
-    
-    for cat in categories:
-        perimeter = cat.get("macro_perimeter", "Uncategorized Perimeter")
-        
-        # Note : On lit la clé JSON "internal_owner_group" si elle s'appelle encore comme ça dans ta base, 
-        # mais on la stocke dans une variable propre : "category_label"
-        category_label = cat.get("internal_owner_group", "Uncategorized Category") 
-        
-        grouped_data[perimeter][category_label].append(cat)
+    # On passe l'Ontologie en premier onglet car c'est le cœur du métier
+    tab1, tab2, tab3 = st.tabs(["🗂️ Ontology Builder", "🏢 Tenant Profile", "🌐 Global Rules"])
 
-    # ==========================================
-    # AFFICHAGE DE L'ONTOLOGIE
-    # ==========================================
-    for perimeter, categories_in_perimeter in grouped_data.items():
-        st.markdown(f"## 🌍 {perimeter}")
+    # ---------------------------------------------------------
+    # ONGLET 1 : ONTOLOGIE (Vue Arborescente et Édition)
+    # ---------------------------------------------------------
+    with tab1:
+        st.subheader("Ontology Tree View")
+        st.markdown("Your regulatory perimeters and sub-categories are grouped by Category Label.")
         
-        for category_label, sub_categories in categories_in_perimeter.items():
-            st.markdown(f"### 📁 {category_label}")
+        if "editing_category" not in st.session_state:
+            st.session_state["editing_category"] = None
+
+        categories = ref_manager.get_categories()
+        
+        # === BLOC ÉDITION ===
+        if st.session_state["editing_category"]:
+            cat_to_edit = ref_manager.get_category_by_id(st.session_state["editing_category"])
             
-            for sub_cat in sub_categories:
-                sub_cat_label = sub_cat.get("category_label", "Unknown Label")
-                sub_cat_id = sub_cat.get("category_id", "UNKNOWN_ID")
+            if cat_to_edit:
+                st.warning(f"✏️ **Editing Mode:** {cat_to_edit.get('category_label')} ({cat_to_edit.get('category_id')})")
                 
-                # Affichage simple de la sous-catégorie
-                st.markdown(f"> 📄 {sub_cat_label} | ID: {sub_cat_id}")
-                
-        st.divider()
+                with st.form("edit_category_form"):
+                    col_macro, col_category = st.columns(2)
+                    with col_macro:
+                        edit_perimeter = st.text_input("Macro Perimeter", value=cat_to_edit.get('perimeter', ''))
+                    with col_category:
+                        edit_category_val = st.text_input("Category Label", value=cat_to_edit.get('internal_owner_group', ''))
+                        
+                    col_label, col_id = st.columns(2)
+                    with col_label:
+                        edit_label = st.text_input("Sub-Category Label", value=cat_to_edit.get('category_label', ''))
+                    with col_id:
+                        st.text_input("Unique ID (Cannot be changed)", value=cat_to_edit.get('category_id', ''), disabled=True)
+                    
+                    edit_def = st.text_area("Business Definition", value=cat_to_edit.get('business_definition', ''))
+                    
+                    st.markdown("**Matching Configuration (Comma separated)**")
+                    config = cat_to_edit.get("matching_engine_config", {})
+                    str_strict = ", ".join(config.get("strict_technical_attributes", []))
+                    str_fuzzy = ", ".join(config.get("fuzzy_keywords_fallbacks", []))
+                    
+                    edit_strict = st.text_area("Strict Attributes (Optional)", value=str_strict)
+                    edit_fuzzy = st.text_area("Keywords (Optional)", value=str_fuzzy)
+                    
+                    col_submit, col_cancel = st.columns([1, 5])
+                    with col_submit:
+                        submitted = st.form_submit_button("💾 Save Changes", type="primary")
+                    with col_cancel:
+                        canceled = st.form_submit_button("❌ Cancel")
+                        
+                    if canceled:
+                        st.session_state["editing_category"] = None
+                        st.rerun()
+                        
+                    if submitted:
+                        cat_to_edit["perimeter"] = edit_perimeter
+                        # On garde la clé 'internal_owner_group' pour la BDD mais la variable UI est propre
+                        cat_to_edit["internal_owner_group"] = edit_category_val 
+                        cat_to_edit["category_label"] = edit_label
+                        cat_to_edit["business_definition"] = edit_def
+                        
+                        cat_to_edit["matching_engine_config"]["strict_technical_attributes"] = [x.strip() for x in edit_strict.split(",") if x.strip()]
+                        cat_to_edit["matching_engine_config"]["fuzzy_keywords_fallbacks"] = [x.strip() for x in edit_fuzzy.split(",") if x.strip()]
+                        
+                        if ref_manager.update_category(cat_to_edit):
+                            st.session_state["editing_category"] = None
+                            st.rerun()
+                st.divider()
 
-    # ==========================================
-    # FORMULAIRE D'AJOUT
-    # ==========================================
-    st.markdown("### ➕ Add New Sub-Category")
-    
-    with st.expander("Open Category Creator Form", expanded=False):
-        with st.form("new_category_form"):
-            
-            # Variables de colonnes renommées pour la cohérence
-            col_macro, col_category, col_label = st.columns(3)
-            
-            with col_macro:
-                new_perimeter = st.text_input("Perimeter", placeholder="e.g., Electronics")
-            with col_category:
-                new_category = st.text_input("Category Label", placeholder="e.g., Energy Storage")
-            with col_label:
-                new_label = st.text_input("Sub-Category Label", placeholder="e.g., Coin Cells & Button Batteries")
-            
-            submitted = st.form_submit_button("Create Skeleton", type="primary")
-            
-            if submitted:
-                if not new_label or not new_category:
-                    st.error("Please fill at least the Category Label and Sub-Category Label.")
-                else:
-                    # Génération d'un ID basique
-                    generated_id = f"SUB_CAT_{new_label.replace(' ', '_').upper()}"
+        # === BLOC AFFICHAGE NORMAL ===
+        elif not categories:
+            st.info("No categories defined. Start building your ontology below.")
+        else:
+            tree = {}
+            for cat in categories:
+                perimeter = cat.get('perimeter', 'Uncategorized Perimeter')
+                category_group = cat.get('internal_owner_group', 'Unassigned Category')
+                
+                if perimeter not in tree:
+                    tree[perimeter] = {}
+                if category_group not in tree[perimeter]:
+                    tree[perimeter][category_group] = []
                     
-                    # Création du nouveau dictionnaire
-                    new_entry = {
-                        "category_id": generated_id,
-                        "macro_perimeter": new_perimeter,
-                        "internal_owner_group": new_category, # On garde la clé JSON attendue par ton backend
-                        "category_label": new_label,
-                        "business_definition": "",
-                        "matching_engine_config": {
-                            "strict_technical_attributes": [],
-                            "fuzzy_keywords_fallbacks": []
-                        },
-                        "reference_legal_framework": [],
-                        "expected_deliverables": []
-                    }
+                tree[perimeter][category_group].append(cat)
+            
+            for perimeter_name, categories_group in tree.items():
+                st.markdown(f"## 🌍 {perimeter_name}")
+                
+                for category_name, sub_categories in categories_group.items():
+                    st.markdown(f"#### 📁 {category_name}")
                     
-                    # Ici tu pourras brancher la fonction de sauvegarde de ton ReferentialManager
-                    # ex: ref_manager.add_category(new_entry)
+                    for cat in sub_categories:
+                        label = cat.get('category_label', 'Unnamed')
+                        cat_id = cat.get('category_id', 'NO_ID')
+                        
+                        with st.expander(f"📄 {label}  |  ID: {cat_id}"):
+                            st.write(f"**Definition:** {cat.get('business_definition', '')}")
+                            st.write(f"**Scope:** {cat.get('operational_scope', '')}")
+                            
+                            st.divider()
+                            col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
+                            with col_edit:
+                                if st.button("✏️ Modify", key=f"edit_{cat_id}"):
+                                    st.session_state["editing_category"] = cat_id
+                                    st.rerun()
+                            with col_dup:
+                                if st.button("📑 Duplicate", key=f"dup_{cat_id}"):
+                                    new_cat = copy.deepcopy(cat)
+                                    new_cat["category_id"] = f"{cat_id}_COPY"
+                                    new_cat["category_label"] = f"{label} (Copy)"
+                                    if ref_manager.add_category(new_cat):
+                                        st.rerun()
+                                    else:
+                                        st.error("A copy already exists. Please modify its ID first before duplicating again.")
+                            with col_del:
+                                if st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary"):
+                                    if ref_manager.delete_category(cat_id):
+                                        st.rerun()
                     
-                    st.success(f"Skeleton created for '{new_label}'! (ID: {generated_id})")
-                    st.info("Backend connection to save this entry is ready to be wired.")
+                st.divider()
+        
+        # 3. Formulaire d'ajout 
+        if not st.session_state["editing_category"]:
+            st.subheader("➕ Add New Sub-Category")
+            with st.expander("Open Category Creator Form"):
+                with st.form("add_category_form"):
+                    col_macro, col_category, col_label = st.columns(3)
+                    with col_macro:
+                        new_perimeter = st.text_input("Perimeter", placeholder="e.g., Electronics")
+                    with col_category:
+                        new_category_val = st.text_input("Category Label", placeholder="e.g., Energy Storage")
+                    with col_label:
+                        new_label = st.text_input("Sub-Category Label", placeholder="e.g., Coin Cells & Button Batteries")
+                    
+                    submitted = st.form_submit_button("Create Skeleton", type="primary")
+                    
+                    if submitted:
+                        if not new_label:
+                            st.error("Error: A Sub-Category Label is required.")
+                        else:
+                            generated_id = f"CAT_{uuid.uuid4().hex[:8].upper()}"
+                            
+                            new_cat = {
+                                "perimeter": new_perimeter if new_perimeter else "Uncategorized Perimeter",
+                                "internal_owner_group": new_category_val if new_category_val else "Unassigned Category",
+                                "category_id": generated_id,
+                                "category_label": new_label,
+                                "business_definition": "Definition to be added...",
+                                "operational_scope": "Scope to be defined...",
+                                "matching_engine_config": {"strict_technical_attributes": [], "fuzzy_keywords_fallbacks": []},
+                                "expected_deliverables": [],
+                                "reference_legal_framework": [],
+                                "automated_watcher_queries": []
+                            }
+                            if ref_manager.add_category(new_cat):
+                                st.rerun()
+                            else:
+                                st.error("Error: Could not create the category.")
+                                
+    # ---------------------------------------------------------
+    # ONGLET 2 : PROFIL
+    # ---------------------------------------------------------
+    with tab2:
+        st.subheader("Tenant Information")
+        profile = data.get("tenant_profile", {})
+        col1, col2 = st.columns(2)
+        with col1:
+            st.text_input("Company Name", value=profile.get("company_name", ""))
+        with col2:
+            st.text_input("Industry Sector", value=profile.get("industry_sector", ""))
+        st.button("💾 Save Profile Settings")
+
+    # ---------------------------------------------------------
+    # ONGLET 3 : RÈGLES GLOBALES 
+    # ---------------------------------------------------------
+    with tab3:
+        st.subheader("Global Routing Rules")
+        rules = data.get("global_routing_rules", {})
+        
+        st.checkbox("Enable Mandatory Fallback Category", value=rules.get("has_mandatory_fallback", False))
+        st.text_input("Fallback Category ID", value=rules.get("mandatory_fallback_category_id", ""))
+        st.checkbox("Allow Multi-labeling (Overlaps)", value=rules.get("allow_multi_labeling", True))
+        st.button("💾 Save Engine Rules")
 
 if __name__ == "__main__":
     main()
