@@ -45,7 +45,7 @@ def main():
                     with col_macro:
                         edit_perimeter = st.text_input("Macro Perimeter", value=cat_to_edit.get('perimeter', ''))
                     with col_group:
-                        edit_group = st.text_input("Owner Group", value=cat_to_edit.get('internal_owner_group', ''))
+                        edit_group = st.text_input("Category Label", value=cat_to_edit.get('internal_owner_group', ''))
                         
                     col_label, col_id = st.columns(2)
                     with col_label:
@@ -147,14 +147,15 @@ def main():
             st.subheader("➕ Add New Sub-Category")
             with st.expander("Open Category Creator Form"):
                 with st.form("add_category_form"):
-                    # L'interface est plus propre : 3 champs simples
+                    # L'interface est plus propre et la nomenclature est logique
                     col_macro, col_group, col_label = st.columns(3)
                     with col_macro:
                         new_perimeter = st.text_input("Perimeter", placeholder="e.g., Electronics")
                     with col_group:
-                        new_group = st.text_input("Owner Group", placeholder="e.g., Optical Technology")
+                        # Remplacement de "Owner Group" par "Category Label"
+                        new_group = st.text_input("Category Label", placeholder="e.g., Energy Storage")
                     with col_label:
-                        new_label = st.text_input("Sub-Category Label", placeholder="e.g., Laser Devices")
+                        new_label = st.text_input("Sub-Category Label", placeholder="e.g., Coin Cells & Button Batteries")
                     
                     submitted = st.form_submit_button("Create Skeleton", type="primary")
                     
