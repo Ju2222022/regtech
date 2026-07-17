@@ -1,4 +1,5 @@
 import json
+import re
 import streamlit as st
 import google.generativeai as genai
 from typing import List, Dict
@@ -9,21 +10,34 @@ class ProductClassifierAgent:
         self._setup_gemini()
 
     def _setup_gemini(self):
-        """Configure l'accès à Gemini via les secrets Streamlit."""
+        """Configure Gemini avec auto-détection du modèle autorisé par la clé."""
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
-            # Gemini 1.5 Flash est parfait : ultra-rapide, économique et doué pour le JSON
-            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        except KeyError:
-            st.error("⚠️ The GEMINI_API_KEY is missing from Streamlit Secrets. The AI won't respond.")
+            
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            
+            if not available_models:
+                self.model = None
+                return
+                
+            target_model = next((m for m in available_models if "1.5-flash" in m), available_models[0])
+            self.model = genai.GenerativeModel(target_model.replace("models/", ""))
+        except Exception as e:
+            print(f"Erreur d'initialisation Gemini: {e}")
             self.model = None
 
+    def _clean_json_output(self, text: str) -> dict:
+        """Sécurise la lecture du JSON généré par l'IA."""
+        text = text.strip()
+        text = re.sub(r"^```json\s*", "", text)
+        text = re.sub(r"^```\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return json.loads(text)
+
     def _build_structured_prompt(self, product_description: str) -> str:
-        """Construit le prompt BMAD avec l'ontologie en contexte."""
         categories = self.ref_manager.get_categories()
         
-        # On ne garde que l'essentiel pour économiser des tokens
         ontology_context = json.dumps([{
             "id": cat.get("category_id"),
             "label": cat.get("category_label"),
@@ -44,7 +58,7 @@ class ProductClassifierAgent:
         """
 
         output_format = """
-        Respond ONLY with a valid JSON object matching this exact schema:
+        Respond ONLY with a valid JSON object matching this exact schema, without any text before or after:
         {
             "analyzed_product": "A very brief 1-sentence summary of the product",
             "matched_categories": [
@@ -57,46 +71,18 @@ class ProductClassifierAgent:
         }
         """
 
-        prompt = f"""
-        {system_rules}
-        
-        --- REGULATORY ONTOLOGY ---
-        {ontology_context}
-        
-        --- PRODUCT TO ANALYZE ---
-        {product_description}
-        
-        --- OUTPUT FORMAT EXPECTATIONS ---
-        {output_format}
-        """
-        return prompt
+        return f"{system_rules}\n\n--- REGULATORY ONTOLOGY ---\n{ontology_context}\n\n--- PRODUCT TO ANALYZE ---\n{product_description}\n\n--- OUTPUT FORMAT EXPECTATIONS ---\n{output_format}"
 
     def analyze_product(self, product_description: str) -> dict:
-        """Envoie le prompt à Gemini et retourne un dictionnaire."""
         if not self.model:
-            return {"error": "LLM Model not configured."}
+            return {"error": "LLM Model not configured properly or no models available for this API key."}
 
         prompt = self._build_structured_prompt(product_description)
         
         try:
-            # On force le modèle à cracher du JSON pur
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1 # Température basse pour éviter la créativité sur du réglementaire
-                )
-            )
-            
-            # On transforme le texte JSON de Gemini en vrai dictionnaire Python
-            result = json.loads(response.text)
-            
-            # Mise à jour du tracker de coûts (approximatif pour la démo)
-            if "session_tokens" in st.session_state:
-                st.session_state["session_tokens"]["calls"] += 1
-                
+            response = self.model.generate_content(prompt)
+            result = self._clean_json_output(response.text)
             return result
             
         except Exception as e:
-            print(f"Erreur API Gemini: {e}")
             return {"error": f"Failed to analyze product: {str(e)}"}
