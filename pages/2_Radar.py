@@ -67,16 +67,23 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # AUTO-DETECT : On demande à ta clé quels modèles elle a le droit d'utiliser
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        # Récupération de tous les modèles disponibles
+        all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # On cherche un modèle Flash en priorité, sinon on prend le premier modèle génératif disponible
-        target_model = next((m for m in available_models if "1.5-flash" in m), available_models[0])
+        # FILTRE : On exclut activement les versions problématiques comme la 2.5-flash
+        valid_models = [m for m in all_models if "gemini-2.5-flash" not in m]
+        
+        if not valid_models:
+            return {"error": "No valid generative models available for this key."}
+            
+        # STRATÉGIE : On cherche la version 1.5-flash en priorité, sinon n'importe quel autre Flash stable, sinon le premier de la liste
+        target_model = next((m for m in valid_models if "1.5-flash" in m), None)
+        if not target_model:
+            target_model = next((m for m in valid_models if "flash" in m), valid_models[0])
+            
         clean_model_name = target_model.replace("models/", "")
-        
         model = genai.GenerativeModel(clean_model_name)
         
-        # On génère la réponse et on nettoie le texte pour garantir le JSON
         response = model.generate_content(prompt)
         return clean_json_output(response.text)
         
