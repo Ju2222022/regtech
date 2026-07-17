@@ -14,7 +14,7 @@ class ProductClassifierAgent:
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
             # Gemini 1.5 Flash est parfait : ultra-rapide, économique et doué pour le JSON
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            self.model = genai.GenerativeModel('gemini-1.5-flash-latest')
         except KeyError:
             st.error("⚠️ The GEMINI_API_KEY is missing from Streamlit Secrets. The AI won't respond.")
             self.model = None
