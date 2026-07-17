@@ -8,6 +8,23 @@ class ProductClassifierAgent:
     def __init__(self, referential_manager):
         self.ref_manager = referential_manager
 
+    def _get_best_gemini_model(self, api_key: str) -> str:
+        """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur."""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        try:
+            resp = requests.get(url)
+            if resp.status_code == 200:
+                models = resp.json().get('models', [])
+                valid_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+                for m in valid_models:
+                    if "flash" in m and "2.0" not in m:
+                        return m
+                if valid_models:
+                    return valid_models[0]
+        except Exception:
+            pass
+        return "models/gemini-1.5-flash"
+
     def _clean_json_output(self, text: str) -> dict:
         """Sécurise la lecture du JSON généré par l'IA."""
         text = text.strip()
@@ -59,7 +76,10 @@ class ProductClassifierAgent:
         
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
-            url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){api_key}"
+            
+            # Récupération dynamique du modèle
+            model_name = self._get_best_gemini_model(api_key)
+            url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
             
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
