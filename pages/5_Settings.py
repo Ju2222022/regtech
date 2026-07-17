@@ -31,7 +31,7 @@ def main():
         if not categories:
             st.info("No categories defined. Start building your ontology below.")
         else:
-            # 1. Regroupement intelligent (Double niveau : Périmètre > Équipe)
+            # 1. Regroupement intelligent
             tree = {}
             for cat in categories:
                 perimeter = cat.get('perimeter', 'Uncategorized Perimeter')
@@ -44,36 +44,37 @@ def main():
                     
                 tree[perimeter][group].append(cat)
             
-            # 2. Affichage de la double arborescence
+            # 2. Affichage dynamique
             for perimeter_name, groups in tree.items():
-                st.markdown(f"## 🌍 {perimeter_name}") # Le Super-Dossier Macro
+                st.markdown(f"## 🌍 {perimeter_name}")
                 
                 for group_name, sub_categories in groups.items():
-                    st.markdown(f"#### 📁 {group_name}") # Le Dossier de l'équipe
+                    st.markdown(f"#### 📁 {group_name}")
                     
                     for cat in sub_categories:
                         label = cat.get('category_label', 'Unnamed')
                         cat_id = cat.get('category_id', 'NO_ID')
                         
-                        # Le tiroir de la catégorie
                         with st.expander(f"📄 {label}  |  ID: {cat_id}"):
                             st.write(f"**Definition:** {cat.get('business_definition', '')}")
                             st.write(f"**Scope:** {cat.get('operational_scope', '')}")
                             
                             st.divider()
-                            
-                            # La barre d'actions de l'Admin
                             col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
                             with col_edit:
                                 st.button("⚙️ Configure Triggers", key=f"edit_{cat_id}")
                             with col_dup:
                                 st.button("📑 Duplicate", key=f"dup_{cat_id}")
                             with col_del:
-                                st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary")
+                                # ACTION : Supprimer la catégorie
+                                if st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary"):
+                                    if ref_manager.delete_category(cat_id):
+                                        st.success(f"Deleted {cat_id}")
+                                        st.rerun() # Rafraîchit l'interface
                     
                 st.divider()
         
-        # 4. Le module d'ajout (Formulaire interactif avec Périmètre)
+        # 3. ACTION : Formulaire d'ajout fonctionnel
         st.subheader("➕ Add New Sub-Category")
         with st.expander("Open Category Creator Form"):
             with st.form("add_category_form"):
@@ -90,8 +91,33 @@ def main():
                     new_id = st.text_input("Unique ID", placeholder="e.g., SUB_CAT_LASER")
                 
                 submitted = st.form_submit_button("Create Skeleton", type="primary")
+                
                 if submitted:
-                    st.success("Form submitted! (Backend save function will be wired next).")
+                    if not new_id or not new_label:
+                        st.error("Error: ID and Label are required.")
+                    else:
+                        # Création du "squelette" de la nouvelle catégorie
+                        new_cat = {
+                            "perimeter": new_perimeter if new_perimeter else "Uncategorized Perimeter",
+                            "internal_owner_group": new_group if new_group else "Unassigned Group",
+                            "category_id": new_id,
+                            "category_label": new_label,
+                            "business_definition": "Definition to be added...",
+                            "operational_scope": "Scope to be defined...",
+                            "matching_engine_config": {
+                                "strict_technical_attributes": [],
+                                "fuzzy_keywords_fallbacks": []
+                            },
+                            "expected_deliverables": [],
+                            "reference_legal_framework": [],
+                            "automated_watcher_queries": []
+                        }
+                        
+                        if ref_manager.add_category(new_cat):
+                            st.success("Category successfully added!")
+                            st.rerun() # Rafraîchit l'interface pour afficher la nouvelle catégorie
+                        else:
+                            st.error("Error: This ID already exists.")
                     
     # ---------------------------------------------------------
     # ONGLET 2 : PROFIL (Désormais éditable)
