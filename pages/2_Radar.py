@@ -6,6 +6,7 @@ import urllib.request
 import urllib.error
 import pandas as pd
 import google.generativeai as genai
+import re
 
 # Connexion au backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -43,6 +44,14 @@ def _fetch_jina(url: str) -> str:
     except Exception as e:
         return ""
 
+def clean_json_output(text: str) -> dict:
+    """Nettoie la réponse de l'IA pour extraire le JSON proprement, même si elle ajoute du Markdown."""
+    text = text.strip()
+    text = re.sub(r"^```json\s*", "", text)
+    text = re.sub(r"^```\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return json.loads(text)
+
 def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain: str) -> dict:
     system_prompt = """You are Agent 2, a product technology profiler for Decathlon Electronics.
     Given web search snippets about a product, extract a structured technology profile. Focus ONLY on factual technical information. Do NOT invent.
@@ -57,11 +66,22 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        response = model.generate_content(prompt, generation_config=genai.GenerationConfig(response_mime_type="application/json", temperature=0.1))
-        return json.loads(response.text)
+        
+        # AUTO-DETECT : On demande à ta clé quels modèles elle a le droit d'utiliser
+        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # On cherche un modèle Flash en priorité, sinon on prend le premier modèle génératif disponible
+        target_model = next((m for m in available_models if "1.5-flash" in m), available_models[0])
+        clean_model_name = target_model.replace("models/", "")
+        
+        model = genai.GenerativeModel(clean_model_name)
+        
+        # On génère la réponse et on nettoie le texte pour garantir le JSON
+        response = model.generate_content(prompt)
+        return clean_json_output(response.text)
+        
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"API Error: {str(e)}"}
 
 def profile_to_text(profile: dict, code: str) -> str:
     techs = profile.get("technologies", {})
