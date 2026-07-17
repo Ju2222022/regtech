@@ -1,56 +1,62 @@
 import json
+import streamlit as st
+import google.generativeai as genai
 from typing import List, Dict
 
 class ProductClassifierAgent:
     def __init__(self, referential_manager):
-        """
-        Initialise l'agent avec un accès direct au moteur d'ontologie.
-        """
         self.ref_manager = referential_manager
+        self._setup_gemini()
+
+    def _setup_gemini(self):
+        """Configure l'accès à Gemini via les secrets Streamlit."""
+        try:
+            api_key = st.secrets["GEMINI_API_KEY"]
+            genai.configure(api_key=api_key)
+            # Gemini 1.5 Flash est parfait : ultra-rapide, économique et doué pour le JSON
+            self.model = genai.GenerativeModel('gemini-1.5-flash')
+        except KeyError:
+            st.error("⚠️ The GEMINI_API_KEY is missing from Streamlit Secrets. The AI won't respond.")
+            self.model = None
 
     def _build_structured_prompt(self, product_description: str) -> str:
-        """
-        Construit le prompt structuré (Brain-Model-Assistant) pour l'LLM.
-        """
-        # 1. BRAIN (Le contexte de vérité absolue)
+        """Construit le prompt BMAD avec l'ontologie en contexte."""
         categories = self.ref_manager.get_categories()
+        
+        # On ne garde que l'essentiel pour économiser des tokens
         ontology_context = json.dumps([{
             "id": cat.get("category_id"),
             "label": cat.get("category_label"),
             "definition": cat.get("business_definition"),
             "strict_attributes": cat.get("matching_engine_config", {}).get("strict_technical_attributes", []),
-            "fuzzy_keywords": cat.get("matching_engine_config", {}).get("fuzzy_keywords_fallbacks", [])
+            "keywords": cat.get("matching_engine_config", {}).get("fuzzy_keywords_fallbacks", [])
         } for cat in categories], indent=2)
 
-        # 2. MODEL (Le rôle et les règles)
         system_rules = """
         You are an Expert Regulatory Affairs Classifier.
-        Your task is to analyze a new product description and map it to the provided Regulatory Ontology.
+        Analyze the provided product description and map it to the Regulatory Ontology.
         
         RULES:
-        - Analyze the product description step-by-step.
-        - A product can belong to MULTIPLE categories.
-        - If strict attributes match, mapping is mandatory.
-        - If fuzzy keywords match, use logical deduction based on the business definition.
-        - If no category matches, you MUST return the fallback category if one exists, or an empty list.
+        1. A product can belong to MULTIPLE categories.
+        2. Strict attributes matches trigger mandatory inclusion.
+        3. Use logical deduction based on the business definition for fuzzy matches.
+        4. If nothing matches, return an empty list.
         """
 
-        # 3. ASSISTANT (Le format strict attendu en sortie)
         output_format = """
-        Return ONLY a valid JSON object strictly matching this schema, without any markdown formatting or extra text:
+        Respond ONLY with a valid JSON object matching this exact schema:
         {
-            "analyzed_product": "Short summary of the product",
+            "analyzed_product": "A very brief 1-sentence summary of the product",
             "matched_categories": [
                 {
-                    "category_id": "ID_OF_THE_MATCH",
+                    "category_id": "THE_EXACT_ID_FROM_ONTOLOGY",
                     "confidence_score": "HIGH or MEDIUM or LOW",
-                    "justification": "One sentence explaining why this category applies based on the ontology."
+                    "justification": "One clear sentence explaining the match."
                 }
             ]
         }
         """
 
-        # Assemblage final
         prompt = f"""
         {system_rules}
         
@@ -60,32 +66,37 @@ class ProductClassifierAgent:
         --- PRODUCT TO ANALYZE ---
         {product_description}
         
-        --- OUTPUT FORMAT ---
+        --- OUTPUT FORMAT EXPECTATIONS ---
         {output_format}
         """
         return prompt
 
     def analyze_product(self, product_description: str) -> dict:
-        """
-        Exécute l'analyse du produit. 
-        Note : La connexion API (OpenAI, Gemini, Claude) sera branchée ici.
-        """
+        """Envoie le prompt à Gemini et retourne un dictionnaire."""
+        if not self.model:
+            return {"error": "LLM Model not configured."}
+
         prompt = self._build_structured_prompt(product_description)
         
-        # TODO: Remplacer ce mock par l'appel API réel vers ton fournisseur LLM
-        print("Prompt envoyé à l'LLM :")
-        print(prompt)
-        
-        # Mock de réponse de l'LLM pour tester le pipeline
-        mock_response = {
-            "analyzed_product": product_description[:50] + "...",
-            "matched_categories": [
-                {
-                    "category_id": "SUB_CAT_STD_ELEC",
-                    "confidence_score": "HIGH",
-                    "justification": "The product is described as an electronic device, matching the standard baseline."
-                }
-            ]
-        }
-        
-        return mock_response
+        try:
+            # On force le modèle à cracher du JSON pur
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1 # Température basse pour éviter la créativité sur du réglementaire
+                )
+            )
+            
+            # On transforme le texte JSON de Gemini en vrai dictionnaire Python
+            result = json.loads(response.text)
+            
+            # Mise à jour du tracker de coûts (approximatif pour la démo)
+            if "session_tokens" in st.session_state:
+                st.session_state["session_tokens"]["calls"] += 1
+                
+            return result
+            
+        except Exception as e:
+            print(f"Erreur API Gemini: {e}")
+            return {"error": f"Failed to analyze product: {str(e)}"}
