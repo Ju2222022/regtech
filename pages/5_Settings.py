@@ -2,6 +2,7 @@ import streamlit as st
 import sys
 import os
 import copy
+import uuid
 
 # Connexion au moteur backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -141,33 +142,33 @@ def main():
                     
                 st.divider()
         
-        # 3. Formulaire d'ajout
+        # 3. Formulaire d'ajout (Allégé et Automatisé)
         if not st.session_state["editing_category"]:
             st.subheader("➕ Add New Sub-Category")
             with st.expander("Open Category Creator Form"):
                 with st.form("add_category_form"):
-                    col_macro, col_group = st.columns(2)
+                    # L'interface est plus propre : 3 champs simples
+                    col_macro, col_group, col_label = st.columns(3)
                     with col_macro:
-                        new_perimeter = st.text_input("Macro Perimeter", placeholder="e.g., Electronics, Textile, Food...")
+                        new_perimeter = st.text_input("Perimeter", placeholder="e.g., Electronics")
                     with col_group:
-                        new_group = st.text_input("Owner Group", placeholder="e.g., Optical & Lighting Technology")
-                        
-                    col_label, col_id = st.columns(2)
+                        new_group = st.text_input("Owner Group", placeholder="e.g., Optical Technology")
                     with col_label:
                         new_label = st.text_input("Sub-Category Label", placeholder="e.g., Laser Devices")
-                    with col_id:
-                        new_id = st.text_input("Unique ID", placeholder="e.g., SUB_CAT_LASER")
                     
                     submitted = st.form_submit_button("Create Skeleton", type="primary")
                     
                     if submitted:
-                        if not new_id or not new_label:
-                            st.error("Error: ID and Label are required.")
+                        if not new_label:
+                            st.error("Error: A Sub-Category Label is required.")
                         else:
+                            # Génération d'un ID unique automatique et invisible
+                            generated_id = f"CAT_{uuid.uuid4().hex[:8].upper()}"
+                            
                             new_cat = {
                                 "perimeter": new_perimeter if new_perimeter else "Uncategorized Perimeter",
                                 "internal_owner_group": new_group if new_group else "Unassigned Group",
-                                "category_id": new_id,
+                                "category_id": generated_id, # L'ID auto-généré est injecté ici
                                 "category_label": new_label,
                                 "business_definition": "Definition to be added...",
                                 "operational_scope": "Scope to be defined...",
@@ -179,8 +180,8 @@ def main():
                             if ref_manager.add_category(new_cat):
                                 st.rerun()
                             else:
-                                st.error("Error: This ID already exists.")
-    
+                                st.error("Error: Could not create the category.")
+                                
     # ---------------------------------------------------------
     # ONGLET 2 : PROFIL (Désormais éditable)
     # ---------------------------------------------------------
