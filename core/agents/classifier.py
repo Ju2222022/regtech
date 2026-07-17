@@ -10,18 +10,25 @@ class ProductClassifierAgent:
         self._setup_gemini()
 
     def _setup_gemini(self):
-        """Configure Gemini avec auto-détection du modèle autorisé par la clé."""
+        """Configure Gemini en évitant les modèles obsolètes ou restreints."""
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
             
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             
-            if not available_models:
+            # FILTRE : On écarte le modèle 2.5-flash instable
+            valid_models = [m for m in all_models if "gemini-2.5-flash" not in m]
+            
+            if not valid_models:
                 self.model = None
                 return
                 
-            target_model = next((m for m in available_models if "1.5-flash" in m), available_models[0])
+            # Sélection intelligente
+            target_model = next((m for m in valid_models if "1.5-flash" in m), None)
+            if not target_model:
+                target_model = next((m for m in valid_models if "flash" in m), valid_models[0])
+                
             self.model = genai.GenerativeModel(target_model.replace("models/", ""))
         except Exception as e:
             print(f"Erreur d'initialisation Gemini: {e}")
