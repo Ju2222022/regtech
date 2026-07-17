@@ -1,38 +1,12 @@
 import json
 import re
+import requests
 import streamlit as st
-import google.generativeai as genai
 from typing import List, Dict
 
 class ProductClassifierAgent:
     def __init__(self, referential_manager):
         self.ref_manager = referential_manager
-        self._setup_gemini()
-
-    def _setup_gemini(self):
-        """Configure Gemini en évitant les modèles obsolètes ou restreints."""
-        try:
-            api_key = st.secrets["GEMINI_API_KEY"]
-            genai.configure(api_key=api_key)
-            
-            all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            
-            # FILTRE : On écarte le modèle 2.5-flash instable
-            valid_models = [m for m in all_models if "gemini-2.5-flash" not in m]
-            
-            if not valid_models:
-                self.model = None
-                return
-                
-            # Sélection intelligente
-            target_model = next((m for m in valid_models if "1.5-flash" in m), None)
-            if not target_model:
-                target_model = next((m for m in valid_models if "flash" in m), valid_models[0])
-                
-            self.model = genai.GenerativeModel(target_model.replace("models/", ""))
-        except Exception as e:
-            print(f"Erreur d'initialisation Gemini: {e}")
-            self.model = None
 
     def _clean_json_output(self, text: str) -> dict:
         """Sécurise la lecture du JSON généré par l'IA."""
@@ -81,15 +55,25 @@ class ProductClassifierAgent:
         return f"{system_rules}\n\n--- REGULATORY ONTOLOGY ---\n{ontology_context}\n\n--- PRODUCT TO ANALYZE ---\n{product_description}\n\n--- OUTPUT FORMAT EXPECTATIONS ---\n{output_format}"
 
     def analyze_product(self, product_description: str) -> dict:
-        if not self.model:
-            return {"error": "LLM Model not configured properly or no models available for this API key."}
-
         prompt = self._build_structured_prompt(product_description)
         
         try:
-            response = self.model.generate_content(prompt)
-            result = self._clean_json_output(response.text)
-            return result
+            api_key = st.secrets["GEMINI_API_KEY"]
+            url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){api_key}"
+            
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1}
+            }
+            
+            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
+            
+            if response.status_code != 200:
+                return {"error": f"API HTTP {response.status_code}: {response.text}"}
+                
+            data = response.json()
+            raw_text = data['candidates'][0]['content']['parts'][0]['text']
+            return self._clean_json_output(raw_text)
             
         except Exception as e:
             return {"error": f"Failed to analyze product: {str(e)}"}
