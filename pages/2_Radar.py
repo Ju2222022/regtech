@@ -53,6 +53,27 @@ def clean_json_output(text: str) -> dict:
     text = re.sub(r"\s*```$", "", text)
     return json.loads(text)
 
+def get_best_gemini_model(api_key: str) -> str:
+    """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        resp = requests.get(url)
+        if resp.status_code == 200:
+            models = resp.json().get('models', [])
+            valid_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+            
+            # On cherche le meilleur Flash disponible (en évitant la v2.0 qui te bloquait)
+            for m in valid_models:
+                if "flash" in m and "2.0" not in m:
+                    return m
+                    
+            # Si aucun flash n'est trouvé, on prend le premier modèle génératif de la liste
+            if valid_models:
+                return valid_models[0]
+    except Exception:
+        pass
+    return "models/gemini-1.5-flash" # Fallback par défaut
+
 def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain: str) -> dict:
     system_prompt = """You are Agent 2, a product technology profiler for Decathlon Electronics.
     Given web search snippets about a product, extract a structured technology profile. Focus ONLY on factual technical information. Do NOT invent.
@@ -67,8 +88,10 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
-        # On attaque directement le serveur de Google sans passer par leur SDK instable
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
+        # Récupération dynamique du nom du modèle
+        model_name = get_best_gemini_model(api_key)
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
         
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
