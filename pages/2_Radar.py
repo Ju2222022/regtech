@@ -54,7 +54,7 @@ def clean_json_output(text: str) -> dict:
     return json.loads(text)
 
 def get_best_gemini_model(api_key: str) -> str:
-    """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur."""
+    """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur, en évitant les pièges de Google."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
         resp = requests.get(url)
@@ -62,17 +62,26 @@ def get_best_gemini_model(api_key: str) -> str:
             models = resp.json().get('models', [])
             valid_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
             
-            # On cherche le meilleur Flash disponible (en évitant la v2.0 qui te bloquait)
+            # 1. On force la recherche stricte du modèle 1.5-flash de base
             for m in valid_models:
-                if "flash" in m and "2.0" not in m:
+                if m == "models/gemini-1.5-flash":
                     return m
                     
-            # Si aucun flash n'est trouvé, on prend le premier modèle génératif de la liste
+            # 2. Sinon on cherche une variante du 1.5-flash
+            for m in valid_models:
+                if "1.5-flash" in m:
+                    return m
+                    
+            # 3. En dernier recours, on prend un flash, mais on BAN TOUTE LA GAMME 2.x
+            for m in valid_models:
+                if "flash" in m and "2." not in m:
+                    return m
+                    
             if valid_models:
                 return valid_models[0]
     except Exception:
         pass
-    return "models/gemini-1.5-flash" # Fallback par défaut
+    return "models/gemini-1.5-flash"
 
 def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain: str) -> dict:
     system_prompt = """You are Agent 2, a product technology profiler for Decathlon Electronics.
