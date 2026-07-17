@@ -16,6 +16,7 @@
   },
   "defined_ontology": [
     {
+      "perimeter": "Electronics", 
       "category_id": "SUB_CAT_STD_ELEC",
       "category_label": "Standard Electronics (Universal Base)",
       "internal_owner_group": "Hardware Compliance Team",
