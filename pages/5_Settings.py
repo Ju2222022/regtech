@@ -19,7 +19,7 @@ def main():
     # On passe l'Ontologie en premier onglet car c'est le cœur du métier
     tab1, tab2, tab3 = st.tabs(["🗂️ Ontology Builder", "🏢 Tenant Profile", "🌐 Global Rules"])
 
-    # ---------------------------------------------------------
+   # ---------------------------------------------------------
     # ONGLET 1 : ONTOLOGIE (Vue Arborescente et Édition)
     # ---------------------------------------------------------
     with tab1:
@@ -31,51 +31,63 @@ def main():
         if not categories:
             st.info("No categories defined. Start building your ontology below.")
         else:
-            # 1. Regroupement intelligent par Périmètre / Équipe
-            folders = {}
+            # 1. Regroupement intelligent (Double niveau : Périmètre > Équipe)
+            tree = {}
             for cat in categories:
-                perimeter = cat.get('internal_owner_group', 'Uncategorized Perimeter')
-                if perimeter not in folders:
-                    folders[perimeter] = []
-                folders[perimeter].append(cat)
-            
-            # 2. Affichage des "Dossiers" et "Sous-Dossiers"
-            for perimeter_name, sub_categories in folders.items():
-                st.markdown(f"### 📁 {perimeter_name}")
+                perimeter = cat.get('perimeter', 'Uncategorized Perimeter')
+                group = cat.get('internal_owner_group', 'Unassigned Group')
                 
-                for cat in sub_categories:
-                    label = cat.get('category_label', 'Unnamed')
-                    cat_id = cat.get('category_id', 'NO_ID')
+                if perimeter not in tree:
+                    tree[perimeter] = {}
+                if group not in tree[perimeter]:
+                    tree[perimeter][group] = []
                     
-                    # Le tiroir de la catégorie (Épuré)
-                    with st.expander(f"📄 {label}  |  ID: {cat_id}"):
-                        st.write(f"**Definition:** {cat.get('business_definition', '')}")
-                        st.write(f"**Scope:** {cat.get('operational_scope', '')}")
+                tree[perimeter][group].append(cat)
+            
+            # 2. Affichage de la double arborescence
+            for perimeter_name, groups in tree.items():
+                st.markdown(f"## 🌍 {perimeter_name}") # Le Super-Dossier Macro
+                
+                for group_name, sub_categories in groups.items():
+                    st.markdown(f"#### 📁 {group_name}") # Le Dossier de l'équipe
+                    
+                    for cat in sub_categories:
+                        label = cat.get('category_label', 'Unnamed')
+                        cat_id = cat.get('category_id', 'NO_ID')
                         
-                        st.divider()
-                        
-                        # 3. La barre d'actions de l'Admin (Plus claire)
-                        col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
-                        with col_edit:
-                            st.button("⚙️ Configure Triggers & Details", key=f"edit_{cat_id}")
-                        with col_dup:
-                            st.button("📑 Duplicate", key=f"dup_{cat_id}")
-                        with col_del:
-                            st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary")
-
-        st.divider()
+                        # Le tiroir de la catégorie
+                        with st.expander(f"📄 {label}  |  ID: {cat_id}"):
+                            st.write(f"**Definition:** {cat.get('business_definition', '')}")
+                            st.write(f"**Scope:** {cat.get('operational_scope', '')}")
+                            
+                            st.divider()
+                            
+                            # La barre d'actions de l'Admin
+                            col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
+                            with col_edit:
+                                st.button("⚙️ Configure Triggers", key=f"edit_{cat_id}")
+                            with col_dup:
+                                st.button("📑 Duplicate", key=f"dup_{cat_id}")
+                            with col_del:
+                                st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary")
+                    
+                st.divider()
         
-        # 4. Le module d'ajout (Formulaire interactif)
+        # 4. Le module d'ajout (Formulaire interactif avec Périmètre)
         st.subheader("➕ Add New Sub-Category")
         with st.expander("Open Category Creator Form"):
             with st.form("add_category_form"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_group = st.text_input("Perimeter / Owner Group", placeholder="e.g., Optical & Lighting Technology")
+                col_macro, col_group = st.columns(2)
+                with col_macro:
+                    new_perimeter = st.text_input("Macro Perimeter", placeholder="e.g., Electronics, Textile, Food...")
+                with col_group:
+                    new_group = st.text_input("Owner Group", placeholder="e.g., Optical & Lighting Technology")
+                    
+                col_label, col_id = st.columns(2)
+                with col_label:
                     new_label = st.text_input("Sub-Category Label", placeholder="e.g., Laser Devices")
-                with col2:
+                with col_id:
                     new_id = st.text_input("Unique ID", placeholder="e.g., SUB_CAT_LASER")
-                    new_framework = st.text_input("Base Framework", placeholder="e.g., Laser Safety Class 1")
                 
                 submitted = st.form_submit_button("Create Skeleton", type="primary")
                 if submitted:
