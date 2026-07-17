@@ -57,7 +57,7 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         response = model.generate_content(prompt, generation_config=genai.GenerationConfig(response_mime_type="application/json", temperature=0.1))
         return json.loads(response.text)
     except Exception as e:
