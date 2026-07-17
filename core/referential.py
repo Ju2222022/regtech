@@ -65,3 +65,16 @@ class ReferentialManager:
         categories.append(new_category)
         self.data["defined_ontology"] = categories
         return self.save_referential(self.data)
+
+    def delete_category(self, category_id: str) -> bool:
+        """Deletes a category from the ontology by its ID."""
+        categories = self.get_categories()
+        initial_length = len(categories)
+        
+        # Filtre la liste pour exclure l'ID à supprimer
+        updated_categories = [cat for cat in categories if cat.get("category_id") != category_id]
+        
+        if len(updated_categories) < initial_length:
+            self.data["defined_ontology"] = updated_categories
+            return self.save_referential(self.data)
+        return False
