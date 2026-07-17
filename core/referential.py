@@ -78,3 +78,13 @@ class ReferentialManager:
             self.data["defined_ontology"] = updated_categories
             return self.save_referential(self.data)
         return False
+
+    def update_category(self, updated_category: dict) -> bool:
+        """Updates an existing category in the ontology."""
+        categories = self.get_categories()
+        for i, cat in enumerate(categories):
+            if cat.get("category_id") == updated_category.get("category_id"):
+                categories[i] = updated_category
+                self.data["defined_ontology"] = categories
+                return self.save_referential(self.data)
+        return False
