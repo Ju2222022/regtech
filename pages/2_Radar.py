@@ -107,13 +107,11 @@ def main():
                         tavily_key = st.secrets["TAVILY_API_KEY"]
                         with st.spinner("Scraping Decathlon & extracting technical profile..."):
                             
-                            # 1. Recherche plus intelligente
                             results = _tavily_search(f"Decathlon {model_code} {domain}", tavily_key)
                             
                             if not results:
-                                st.error("No results found on the web for this code.")
+                                st.error("No results found on the web for this code. Tavily might be blocked.")
                             else:
-                                # Recherche de la meilleure URL (page produit)
                                 best_url = ""
                                 for r in results:
                                     u = r.get("url", "")
@@ -123,36 +121,28 @@ def main():
                                 if not best_url:
                                     best_url = results[0].get("url", "")
 
-                                # Fetching
                                 jina_content = _fetch_jina(best_url) if best_url else ""
                                 
+                                # On force l'ajout des snippets Tavily même si Jina échoue
                                 snippets = f"[Jina Source: {best_url}]\n{jina_content}\n\n" if jina_content else ""
-                                for r in results[:3]:
+                                for r in results[:4]:
                                     snippets += f"[{r.get('title')}]\n{r.get('content')}\n\n"
                                 
-                                st.session_state["raw_snippets"] = snippets # Sauvegarde pour debug
+                                st.session_state["raw_snippets"] = snippets 
                                 
-                                # 2. Extraction avec Gemini
                                 profile = extract_tech_profile_with_gemini(snippets, model_code, domain)
                                 
-                                st.session_state["scraped_profile"] = profile
-                                st.session_state["final_brief"] = profile_to_text(profile, model_code)
-                                st.success("Drafting complete! Review the brief below and launch the analysis.")
-                                st.rerun()
+                                # GESTION DE L'ERREUR : On arrête tout si Gemini plante
+                                if "error" in profile:
+                                    st.error(f"⚠️ AI Extraction Failed: {profile['error']}")
+                                else:
+                                    st.session_state["scraped_profile"] = profile
+                                    st.session_state["final_brief"] = profile_to_text(profile, model_code)
+                                    st.success("Drafting complete! Review the brief below and launch the analysis.")
+                                    st.rerun()
 
                     except KeyError:
                         st.error("TAVILY_API_KEY missing in Streamlit Secrets.")
-
-        with tab_bulk:
-            st.info("Batch processing will analyze multiple codes and output a consolidated Excel report.")
-            df_template = pd.DataFrame({"model_code": ["8525208", "8554912"], "domain_hint": ["decathlon.fr", "decathlon.fr"]})
-            csv = df_template.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download CSV Template", data=csv, file_name="regwatch_bulk_template.csv", mime="text/csv")
-            uploaded_file = st.file_uploader("Upload filled CSV", type=["csv"])
-            if uploaded_file and st.button("Run Bulk Analysis"):
-                st.warning("Bulk engine UI is currently being wired. Check back in the next version!")
-
-    st.divider()
 
     # --- MODULE 2 : THE RADAR ---
     st.subheader("1. Product Brief")
