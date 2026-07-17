@@ -9,16 +9,29 @@ class ProductClassifierAgent:
         self.ref_manager = referential_manager
 
     def _get_best_gemini_model(self, api_key: str) -> str:
-        """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur."""
+        """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur, en évitant les pièges de Google."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         try:
             resp = requests.get(url)
             if resp.status_code == 200:
                 models = resp.json().get('models', [])
                 valid_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+                
+                # 1. On force la recherche stricte du modèle 1.5-flash de base
                 for m in valid_models:
-                    if "flash" in m and "2.0" not in m:
+                    if m == "models/gemini-1.5-flash":
                         return m
+                        
+                # 2. Sinon on cherche une variante du 1.5-flash
+                for m in valid_models:
+                    if "1.5-flash" in m:
+                        return m
+                        
+                # 3. En dernier recours, on prend un flash, mais on BAN TOUTE LA GAMME 2.x
+                for m in valid_models:
+                    if "flash" in m and "2." not in m:
+                        return m
+                        
                 if valid_models:
                     return valid_models[0]
         except Exception:
