@@ -8,7 +8,6 @@ class ProductClassifierAgent:
         self.ref_manager = referential_manager
 
     def _clean_json_output(self, text: str) -> dict:
-        """Nettoie le texte renvoyé par l'IA pour garantir un format JSON valide."""
         text = text.strip()
         text = re.sub(r"^```json\s*", "", text)
         text = re.sub(r"^```\s*", "", text)
@@ -64,13 +63,8 @@ class ProductClassifierAgent:
             raw_key = str(st.secrets["GEMINI_API_KEY"])
             api_key = "".join(raw_key.split())
             
-            # 2. On réactive le détecteur dynamique
-            model_name = self._get_best_gemini_model(api_key)
-            if not model_name:
-                model_name = "models/gemini-1.5-flash-latest" # Fallback de sécurité
-            
-            # 3. Construction de l'URL avec bouclier anti-caractères invisibles
-            url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+            # 2. URL fixée en dur vers le modèle stable
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
             url = url.encode('ascii', 'ignore').decode('ascii')
             
             payload = {
@@ -86,7 +80,7 @@ class ProductClassifierAgent:
             data = response.json()
             raw_text = data['candidates'][0]['content']['parts'][0]['text']
             
-            # 4. Extraction des Tokens d'utilisation
+            # 3. Extraction des Tokens d'utilisation
             usage = data.get("usageMetadata", {})
             total_tokens = usage.get("totalTokenCount", 0)
             
