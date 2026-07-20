@@ -10,8 +10,10 @@ Fedlex,Switzerland,Cross-Domain,API XML,Multi,https://www.fedlex.admin.ch/api,Tr
 Federal Register,USA,Cross-Domain,API JSON,EN,https://www.federalregister.gov/api/v1/,True
 CPSC,USA,Product Safety,API JSON,EN,https://www.cpsc.gov/cgibin/api.json,True
 FCC,USA,Electronics & Radio,API JSON,EN,https://apps.fcc.gov/edocs_public/api/,True
+DOE,USA,Energy Efficiency,Web Scraping,EN,https://www.energy.gov/eere/,True
 Health Canada Recalls,Canada,Product Safety,RSS Feed,EN,https://recalls-rappels.canada.ca/en/feed,True
 ISED,Canada,Electronics & Radio,Web Scraping,EN,https://ised-isde.canada.ca/,True
+NRCan,Canada,Energy Efficiency,Web Scraping,EN,https://natural-resources.canada.ca/,True
 SAMR,China,Product Safety & Market,Web Scraping,ZH,https://www.samr.gov.cn/,True
 MIIT,China,Electronics & Telecom,Web Scraping,ZH,https://www.miit.gov.cn/,True
 BIS,India,Standards & Electronics,Web Scraping,EN,https://www.bis.gov.in/,True
