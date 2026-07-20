@@ -2,44 +2,30 @@ import json
 import re
 import requests
 import streamlit as st
-from typing import List, Dict
 
 class ProductClassifierAgent:
     def __init__(self, referential_manager):
         self.ref_manager = referential_manager
 
     def _get_best_gemini_model(self, api_key: str) -> str:
-        """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur, en évitant les pièges de Google."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         try:
             resp = requests.get(url)
             if resp.status_code == 200:
                 models = resp.json().get('models', [])
                 valid_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
-                
-                # 1. On force la recherche stricte du modèle 1.5-flash de base
                 for m in valid_models:
-                    if m == "models/gemini-1.5-flash":
-                        return m
-                        
-                # 2. Sinon on cherche une variante du 1.5-flash
+                    if m == "models/gemini-1.5-flash": return m
                 for m in valid_models:
-                    if "1.5-flash" in m:
-                        return m
-                        
-                # 3. En dernier recours, on prend un flash, mais on BAN TOUTE LA GAMME 2.x
+                    if "1.5-flash" in m: return m
                 for m in valid_models:
-                    if "flash" in m and "2." not in m:
-                        return m
-                        
-                if valid_models:
-                    return valid_models[0]
+                    if "flash" in m and "2." not in m: return m
+                if valid_models: return valid_models[0]
         except Exception:
             pass
         return "models/gemini-1.5-flash"
 
     def _clean_json_output(self, text: str) -> dict:
-        """Sécurise la lecture du JSON généré par l'IA."""
         text = text.strip()
         text = re.sub(r"^```json\s*", "", text)
         text = re.sub(r"^```\s*", "", text)
@@ -57,9 +43,10 @@ class ProductClassifierAgent:
             "keywords": cat.get("matching_engine_config", {}).get("fuzzy_keywords_fallbacks", [])
         } for cat in categories], indent=2)
 
+        # Les instructions sont recentrées sur le tagging interne et l'organisation
         system_rules = """
-        You are an Expert Regulatory Affairs Classifier.
-        Analyze the provided product description and map it to the Regulatory Ontology.
+        You are an Expert Technical Classifier.
+        Analyze the provided product description and map it to our internal organizational ontology.
         
         RULES:
         1. A product can belong to MULTIPLE categories.
@@ -82,21 +69,16 @@ class ProductClassifierAgent:
         }
         """
 
-        return f"{system_rules}\n\n--- REGULATORY ONTOLOGY ---\n{ontology_context}\n\n--- PRODUCT TO ANALYZE ---\n{product_description}\n\n--- OUTPUT FORMAT EXPECTATIONS ---\n{output_format}"
+        return f"{system_rules}\n\n--- INTERNAL ONTOLOGY ---\n{ontology_context}\n\n--- PRODUCT TO ANALYZE ---\n{product_description}\n\n--- OUTPUT EXPECTATIONS ---\n{output_format}"
 
     def analyze_product(self, product_description: str) -> dict:
         prompt = self._build_structured_prompt(product_description)
         
         try:
-            # 1. Nettoyage extrême de la clé API (espaces, sauts de ligne, guillemets parasites)
             api_key = str(st.secrets["GEMINI_API_KEY"]).replace('\n', '').replace('\r', '').replace('"', '').replace("'", "").strip()
-            
-            # 2. Nettoyage du nom du modèle
             model_name = self._get_best_gemini_model(api_key).replace('\n', '').replace('\r', '').strip()
-            
-            # 3. Construction et nettoyage de l'URL
-            url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
-            url = url.strip().replace(" ", "") # Coup d'aspirateur final
+            url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
+            url = url.strip().replace(" ", "")
             
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
@@ -110,17 +92,15 @@ class ProductClassifierAgent:
                 
             data = response.json()
             raw_text = data['candidates'][0]['content']['parts'][0]['text']
-            return self._clean_json_output(raw_text)
             
-        except Exception as e:
-            return {"error": f"Failed to analyze product: {str(e)}"}
+            # --- AJOUT: Extraction des Tokens d'utilisation ---
+            usage = data.get("usageMetadata", {})
+            total_tokens = usage.get("totalTokenCount", 0)
             
-            if response.status_code != 200:
-                return {"error": f"API HTTP {response.status_code}: {response.text}"}
-                
-            data = response.json()
-            raw_text = data['candidates'][0]['content']['parts'][0]['text']
-            return self._clean_json_output(raw_text)
+            result = self._clean_json_output(raw_text)
+            result["_tokens"] = total_tokens # On attache le coût au JSON final
+            
+            return result
             
         except Exception as e:
             return {"error": f"Failed to analyze product: {str(e)}"}
