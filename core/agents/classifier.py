@@ -87,12 +87,15 @@ class ProductClassifierAgent:
     def analyze_product(self, product_description: str) -> dict:
         prompt = self._build_structured_prompt(product_description)
         
-        try:
-            api_key = st.secrets["GEMINI_API_KEY"]
+    try:
+            # On utilise .strip() pour nettoyer les espaces/sauts de ligne invisibles
+            api_key = st.secrets["GEMINI_API_KEY"].strip()
             
-            # Récupération dynamique du modèle
-            model_name = self._get_best_gemini_model(api_key)
-            url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
+            # Récupération dynamique du modèle, également nettoyée
+            model_name = self._get_best_gemini_model(api_key).strip()
+            
+            # Construction sécurisée de l'URL
+            url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
             
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
