@@ -99,9 +99,11 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         raw_key = str(st.secrets["GEMINI_API_KEY"])
         api_key = "".join(raw_key.split())
         
-        # 2. Modèle fixé en dur (Plus rapide et stable)
-        model_name = "models/gemini-1.5-flash"
-        
+        # 2. On réactive le détecteur dynamique avec la clé propre
+        model_name = get_best_gemini_model(api_key)
+        if not model_name:
+            model_name = "models/gemini-1.5-flash-latest" # Fallback de sécurité
+            
         # 3. Construction de l'URL avec bouclier anti-caractères invisibles
         url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
         url = url.encode('ascii', 'ignore').decode('ascii')
