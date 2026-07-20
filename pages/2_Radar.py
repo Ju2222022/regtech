@@ -5,7 +5,6 @@ import json
 import urllib.request
 import urllib.error
 import pandas as pd
-import google.generativeai as genai
 import re
 import requests
 
