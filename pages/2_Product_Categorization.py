@@ -5,16 +5,18 @@ import json
 import urllib.request
 import urllib.error
 import re
+import PyPDF2
+from io import BytesIO
 
 # Connexion au backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from core.referential import ReferentialManager
 from core.agents.classifier import ProductClassifierAgent
 
-st.set_page_config(page_title="Product Screening | RegWatch", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Product Categorization | RegWatch", page_icon="🎯", layout="wide")
 
 # ==========================================
-# FONCTIONS DE SCRAPING (Version Robuste)
+# FONCTIONS DE SCRAPING & IA
 # ==========================================
 def _tavily_search(query: str, tavily_key: str, max_results: int = 5) -> list:
     payload = json.dumps({"api_key": tavily_key, "query": query, "max_results": max_results, "search_depth": "advanced", "include_answer": False}).encode()
@@ -64,7 +66,7 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         raw_key = str(st.secrets["GEMINI_API_KEY"])
         api_key = "".join(raw_key.split())
         
-        base_url = "https://generativelanguage.googleapis.com"
+        base_url = "[https://generativelanguage.googleapis.com](https://generativelanguage.googleapis.com)"
         endpoint = f"/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
         url = (base_url + endpoint).strip()
         
@@ -76,7 +78,6 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         data = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': 'application/json'}
         
-        # Utilisation de urllib au lieu de requests
         req = urllib.request.Request(url, data=data, headers=headers)
         with urllib.request.urlopen(req, timeout=30) as response:
             resp_data = json.loads(response.read().decode('utf-8'))
@@ -98,8 +99,8 @@ def profile_to_text(profile: dict, code: str) -> str:
 # INTERFACE UTILISATEUR
 # ==========================================
 def main():
-    st.title("🎯 Product Screening & Risk Mapping")
-    st.markdown("Identify applicable regulatory frameworks instantly.")
+    st.title("🎯 Product Screening & Classification")
+    st.markdown("Map new products to internal organizational categories instantly.")
 
     ref_manager = ReferentialManager()
     classifier_agent = ProductClassifierAgent(ref_manager)
@@ -111,10 +112,12 @@ def main():
     if "raw_snippets" not in st.session_state:
         st.session_state["raw_snippets"] = ""
 
-    with st.expander("🛠️ Decathlon Expert Mode (Web Scraping & Bulk CSV)", expanded=True):
-        tab_single, tab_bulk = st.tabs(["🔍 Single Product Profiler", "📂 Bulk CSV Upload"])
+    # --- ÉTAPE 0 : IMPORTATION DES DONNÉES ---
+    with st.expander("🛠️ 0. Data Import (Optional)", expanded=True):
+        tab_scrape, tab_upload = st.tabs(["🌐 Auto-Import (Web Scraping)", "📄 Upload Tech Document"])
         
-        with tab_single:
+        # Onglet 1 : Web Scraping
+        with tab_scrape:
             st.markdown("Enter a Model Code to automatically draft the product brief using live web data.")
             col1, col2 = st.columns(2)
             with col1:
@@ -130,9 +133,8 @@ def main():
                         tavily_key = st.secrets["TAVILY_API_KEY"]
                         with st.spinner("Scraping Decathlon & extracting technical profile..."):
                             results = _tavily_search(f"Decathlon {model_code} {domain}", tavily_key)
-                            
                             if not results:
-                                st.error("No results found on the web for this code. Tavily might be blocked.")
+                                st.error("No results found on the web for this code.")
                             else:
                                 best_url = ""
                                 for r in results:
@@ -144,13 +146,11 @@ def main():
                                     best_url = results[0].get("url", "")
 
                                 jina_content = _fetch_jina(best_url) if best_url else ""
-                                
                                 snippets = f"[Jina Source: {best_url}]\n{jina_content}\n\n" if jina_content else ""
                                 for r in results[:4]:
                                     snippets += f"[{r.get('title')}]\n{r.get('content')}\n\n"
                                 
                                 st.session_state["raw_snippets"] = snippets 
-                                
                                 profile = extract_tech_profile_with_gemini(snippets, model_code, domain)
                                 
                                 if "error" in profile:
@@ -158,20 +158,46 @@ def main():
                                 else:
                                     st.session_state["scraped_profile"] = profile
                                     st.session_state["final_brief"] = profile_to_text(profile, model_code)
-                                    st.success("Drafting complete! Review the brief below and launch the analysis.")
+                                    st.success("Drafting complete! Review the brief below and run classification.")
                                     st.rerun()
-
                     except KeyError:
                         st.error("TAVILY_API_KEY missing in Streamlit Secrets.")
 
+        # Onglet 2 : Upload PDF
+        with tab_upload:
+            st.markdown("Upload a technical manual, specifications sheet, or product brief to extract its content.")
+            uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
+            
+            if uploaded_file is not None:
+                if st.button("Extract Text from PDF"):
+                    with st.spinner("Reading document..."):
+                        try:
+                            pdf_reader = PyPDF2.PdfReader(BytesIO(uploaded_file.read()))
+                            extracted_text = ""
+                            for page in pdf_reader.pages:
+                                text = page.extract_text()
+                                if text:
+                                    extracted_text += text + "\n"
+                            
+                            if extracted_text.strip():
+                                # On limite la taille pour éviter de surcharger le prompt de classification
+                                st.session_state["final_brief"] = extracted_text[:8000]
+                                st.success("Text extracted successfully! Review it in the Product Brief below.")
+                                st.rerun()
+                            else:
+                                st.warning("The PDF appears to be empty or contains only unreadable images.")
+                        except Exception as e:
+                            st.error(f"Failed to read PDF: {str(e)}")
+
+    # --- ÉTAPE 1 : LE PRODUCT BRIEF ---
     st.subheader("1. Product Brief")
     
     with st.form("screening_form"):
         product_desc = st.text_area(
             "Technical Specs or Use Case (Edit freely before analysis)", 
             value=st.session_state["final_brief"],
-            height=150,
-            placeholder="e.g., We are developing a new running smartwatch..."
+            height=200,
+            placeholder="Paste your product description here, or use the Data Import tools above..."
         )
         submitted = st.form_submit_button("Run Classification", type="primary")
 
@@ -179,6 +205,7 @@ def main():
         with st.expander("🔍 Debug: View Raw Web Scraped Data"):
             st.text_area("What the scraper found:", value=st.session_state["raw_snippets"], height=200, disabled=True)
 
+    # --- ÉTAPE 2 : CLASSIFICATION ---
     if submitted:
         if not product_desc.strip() or product_desc.strip() == "Product Code : Unknown. . Key tech: . Primary function: .":
             st.error("Please provide a valid product description.")
