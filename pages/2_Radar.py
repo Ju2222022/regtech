@@ -65,7 +65,7 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         api_key = "".join(raw_key.split())
         
         base_url = "https://generativelanguage.googleapis.com"
-        endpoint = f"/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        endpoint = f"/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
         url = (base_url + endpoint).strip()
         
         payload = {
