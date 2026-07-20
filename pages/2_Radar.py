@@ -31,7 +31,6 @@ def _tavily_search(query: str, tavily_key: str, max_results: int = 5) -> list:
 def _fetch_jina(url: str) -> str:
     try:
         jina_url = f"https://r.jina.ai/{url}"
-        # Ajout d'un User-Agent pour éviter le blocage par certains serveurs
         headers = {"Accept": "text/plain", "X-Return-Format": "text", "User-Agent": "Mozilla/5.0"}
         req = urllib.request.Request(jina_url, headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -45,42 +44,11 @@ def _fetch_jina(url: str) -> str:
         return ""
 
 def clean_json_output(text: str) -> dict:
-    """Nettoie la réponse de l'IA pour extraire le JSON proprement, même si elle ajoute du Markdown."""
     text = text.strip()
     text = re.sub(r"^```json\s*", "", text)
     text = re.sub(r"^```\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
     return json.loads(text)
-
-def get_best_gemini_model(api_key: str) -> str:
-    """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur, en évitant les pièges de Google."""
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models?key=](https://generativelanguage.googleapis.com/v1beta/models?key=){api_key}"
-    try:
-        resp = requests.get(url)
-        if resp.status_code == 200:
-            models = resp.json().get('models', [])
-            valid_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
-            
-            # 1. On force la recherche stricte du modèle 1.5-flash de base
-            for m in valid_models:
-                if m == "models/gemini-1.5-flash":
-                    return m
-                    
-            # 2. Sinon on cherche une variante du 1.5-flash
-            for m in valid_models:
-                if "1.5-flash" in m:
-                    return m
-                    
-            # 3. En dernier recours, on prend un flash, mais on BAN TOUTE LA GAMME 2.x
-            for m in valid_models:
-                if "flash" in m and "2." not in m:
-                    return m
-                    
-            if valid_models:
-                return valid_models[0]
-    except Exception:
-        pass
-    return "models/gemini-1.5-flash"
 
 def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain: str) -> dict:
     system_prompt = """You are Agent 2, a product technology profiler for Decathlon Electronics.
@@ -99,13 +67,8 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         raw_key = str(st.secrets["GEMINI_API_KEY"])
         api_key = "".join(raw_key.split())
         
-        # 2. On réactive le détecteur dynamique avec la clé propre
-        model_name = get_best_gemini_model(api_key)
-        if not model_name:
-            model_name = "models/gemini-1.5-flash-latest" # Fallback de sécurité
-            
-        # 3. Construction de l'URL avec bouclier anti-caractères invisibles
-        url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+        # 2. URL fixée en dur vers le modèle stable
+        url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){api_key}"
         url = url.encode('ascii', 'ignore').decode('ascii')
         
         payload = {
@@ -150,7 +113,6 @@ def main():
     if "raw_snippets" not in st.session_state:
         st.session_state["raw_snippets"] = ""
 
-    # --- MODULE 1 : DECATHLON EXPERT MODE ---
     with st.expander("🛠️ Decathlon Expert Mode (Web Scraping & Bulk CSV)", expanded=True):
         tab_single, tab_bulk = st.tabs(["🔍 Single Product Profiler", "📂 Bulk CSV Upload"])
         
@@ -169,7 +131,6 @@ def main():
                     try:
                         tavily_key = st.secrets["TAVILY_API_KEY"]
                         with st.spinner("Scraping Decathlon & extracting technical profile..."):
-                            
                             results = _tavily_search(f"Decathlon {model_code} {domain}", tavily_key)
                             
                             if not results:
@@ -186,7 +147,6 @@ def main():
 
                                 jina_content = _fetch_jina(best_url) if best_url else ""
                                 
-                                # On force l'ajout des snippets Tavily même si Jina échoue
                                 snippets = f"[Jina Source: {best_url}]\n{jina_content}\n\n" if jina_content else ""
                                 for r in results[:4]:
                                     snippets += f"[{r.get('title')}]\n{r.get('content')}\n\n"
@@ -195,7 +155,6 @@ def main():
                                 
                                 profile = extract_tech_profile_with_gemini(snippets, model_code, domain)
                                 
-                                # GESTION DE L'ERREUR : On arrête tout si Gemini plante
                                 if "error" in profile:
                                     st.error(f"⚠️ AI Extraction Failed: {profile['error']}")
                                 else:
@@ -207,7 +166,6 @@ def main():
                     except KeyError:
                         st.error("TAVILY_API_KEY missing in Streamlit Secrets.")
 
-    # --- MODULE 2 : THE RADAR ---
     st.subheader("1. Product Brief")
     
     with st.form("screening_form"):
@@ -217,15 +175,12 @@ def main():
             height=150,
             placeholder="e.g., We are developing a new running smartwatch..."
         )
-        # Modification du texte du bouton
         submitted = st.form_submit_button("Run Classification", type="primary")
 
-    # --- MODULE DEBUG (Pour comprendre ce que l'IA a lu) ---
     if st.session_state["raw_snippets"]:
         with st.expander("🔍 Debug: View Raw Web Scraped Data"):
             st.text_area("What the scraper found:", value=st.session_state["raw_snippets"], height=200, disabled=True)
 
-    # --- MODULE 3 : AFFICHAGE DU RAPPORT ---
     if submitted:
         if not product_desc.strip() or product_desc.strip() == "Product Code : Unknown. . Key tech: . Primary function: .":
             st.error("Please provide a valid product description.")
@@ -236,7 +191,6 @@ def main():
                 if "error" in result:
                     st.error(f"Classification Failed: {result['error']}")
                 else:
-                    # NOTIFICATION DE COÛT (Toast)
                     tokens = result.get("_tokens", 0)
                     cost_estimate = (tokens / 1000000) * 0.15 
                     st.toast(f"⚡ Classification OK | {tokens} tokens utilisés (~${cost_estimate:.6f})", icon="🪙")
@@ -248,8 +202,6 @@ def main():
                         with st.expander("🛠️ View Structured Tech Profile (JSON)"):
                             st.json(st.session_state["scraped_profile"])
                             
-                    # La section "AI Product Understanding" a été supprimée
-                    
                     st.markdown("### 🏷️ Classification Results")
                     matched = result.get("matched_categories", [])
                     
@@ -267,7 +219,6 @@ def main():
                             
                             with st.expander(f"{icon} {label} (Confidence: {score})", expanded=True):
                                 st.markdown(f"**AI Justification:** *{justification}*")
-                                # Les colonnes "Legal Framework" et "Deliverables" ont été supprimées
 
 if __name__ == "__main__":
     main()
