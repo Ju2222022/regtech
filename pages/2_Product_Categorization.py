@@ -5,6 +5,8 @@ import json
 import urllib.request
 import urllib.error
 import re
+import time
+import pandas as pd
 import PyPDF2
 from io import BytesIO
 
@@ -20,17 +22,16 @@ st.set_page_config(page_title="Product Categorization | RegWatch", page_icon="�
 # ==========================================
 def _tavily_search(query: str, tavily_key: str, max_results: int = 5) -> list:
     payload = json.dumps({"api_key": tavily_key, "query": query, "max_results": max_results, "search_depth": "advanced", "include_answer": False}).encode()
-    req = urllib.request.Request("https://api.tavily.com/search", data=payload, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request("https" + "://" + "api.tavily.com/search", data=payload, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=20) as resp:
             return json.loads(resp.read()).get("results", [])
     except Exception as e:
-        st.error(f"Tavily Error: {str(e)}")
         return []
 
 def _fetch_jina(url: str) -> str:
     try:
-        jina_url = f"https://r.jina.ai/{url}"
+        jina_url = "https" + "://" + f"r.jina.ai/{url}"
         headers = {"Accept": "text/plain", "X-Return-Format": "text", "User-Agent": "Mozilla/5.0"}
         req = urllib.request.Request(jina_url, headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=20) as resp:
@@ -48,7 +49,10 @@ def clean_json_output(text: str) -> dict:
     text = re.sub(r"^```json\s*", "", text)
     text = re.sub(r"^```\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except:
+        return {"error": "Failed to parse JSON"}
 
 def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain: str) -> dict:
     system_prompt = """You are Agent 2, a product technology profiler for Decathlon Electronics.
@@ -66,9 +70,11 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         raw_key = str(st.secrets["GEMINI_API_KEY"])
         api_key = "".join(raw_key.split())
         
-        base_url = "[https://generativelanguage.googleapis.com](https://generativelanguage.googleapis.com)"
+        # LE BOUCLIER ANTI-MARKDOWN DÉFINITIF
+        protocol = "https"
+        api_domain = "generativelanguage.googleapis.com"
         endpoint = f"/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
-        url = (base_url + endpoint).strip()
+        url = protocol + "://" + api_domain + endpoint
         
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -114,9 +120,9 @@ def main():
 
     # --- ÉTAPE 0 : IMPORTATION DES DONNÉES ---
     with st.expander("🛠️ 0. Data Import (Optional)", expanded=True):
-        tab_scrape, tab_upload = st.tabs(["🌐 Auto-Import (Web Scraping)", "📄 Upload Tech Document"])
+        tab_scrape, tab_upload, tab_bulk = st.tabs(["🌐 Auto-Import (Web)", "📄 Upload Document", "📑 Bulk CSV Analysis"])
         
-        # Onglet 1 : Web Scraping
+        # --- ONGLET 1 : SCRAPING SIMPLE ---
         with tab_scrape:
             st.markdown("Enter a Model Code to automatically draft the product brief using live web data.")
             col1, col2 = st.columns(2)
@@ -163,7 +169,7 @@ def main():
                     except KeyError:
                         st.error("TAVILY_API_KEY missing in Streamlit Secrets.")
 
-        # Onglet 2 : Upload PDF
+        # --- ONGLET 2 : UPLOAD PDF ---
         with tab_upload:
             st.markdown("Upload a technical manual, specifications sheet, or product brief to extract its content.")
             uploaded_file = st.file_uploader("Choose a PDF file", type=["pdf"])
@@ -180,7 +186,6 @@ def main():
                                     extracted_text += text + "\n"
                             
                             if extracted_text.strip():
-                                # On limite la taille pour éviter de surcharger le prompt de classification
                                 st.session_state["final_brief"] = extracted_text[:8000]
                                 st.success("Text extracted successfully! Review it in the Product Brief below.")
                                 st.rerun()
@@ -188,6 +193,94 @@ def main():
                                 st.warning("The PDF appears to be empty or contains only unreadable images.")
                         except Exception as e:
                             st.error(f"Failed to read PDF: {str(e)}")
+
+        # --- ONGLET 3 : BULK CSV (NOUVEAU) ---
+        with tab_bulk:
+            st.markdown("Download the template, fill it with your model codes, and upload it for an automated batch analysis.")
+            
+            # 1. Génération du template
+            template_df = pd.DataFrame({"model_code": ["8525208", "8759214"], "domain": ["decathlon.fr", "decathlon.fr"]})
+            csv_template = template_df.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇️ 1. Download CSV Template", data=csv_template, file_name="regwatch_bulk_template.csv", mime="text/csv")
+            
+            st.divider()
+            
+            # 2. Upload et traitement
+            uploaded_csv = st.file_uploader("2. Upload filled CSV", type=["csv"])
+            if uploaded_csv:
+                if st.button("🚀 Run Automated Bulk Analysis", type="primary"):
+                    try:
+                        df = pd.read_csv(uploaded_csv)
+                        if "model_code" not in df.columns:
+                            st.error("Invalid CSV format. Please use the provided template with the 'model_code' column.")
+                        else:
+                            st.info("Starting batch process. This will take time to respect Google's API rate limits...")
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            results = []
+                            
+                            tavily_key = st.secrets.get("TAVILY_API_KEY", "")
+                            
+                            for idx, row in df.iterrows():
+                                m_code = str(row["model_code"]).strip()
+                                dom = row.get("domain", "decathlon.fr").strip()
+                                
+                                status_text.text(f"Processing Model Code: {m_code} ({idx+1}/{len(df)})")
+                                
+                                try:
+                                    # Étape A: Scraping
+                                    search_res = _tavily_search(f"Decathlon {m_code} {dom}", tavily_key)
+                                    best_url = search_res[0].get("url", "") if search_res else ""
+                                    jina_content = _fetch_jina(best_url) if best_url else ""
+                                    
+                                    snippets = f"[Jina Source: {best_url}]\n{jina_content}\n\n" if jina_content else ""
+                                    for r in search_res[:4]:
+                                        snippets += f"[{r.get('title')}]\n{r.get('content')}\n\n"
+                                    
+                                    # Étape B: Profilage
+                                    profile = extract_tech_profile_with_gemini(snippets, m_code, dom)
+                                    
+                                    if "error" not in profile:
+                                        brief_text = profile_to_text(profile, m_code)
+                                        # Étape C: Classification
+                                        class_result = classifier_agent.analyze_product(brief_text)
+                                        
+                                        if "error" not in class_result:
+                                            matched = class_result.get("matched_categories", [])
+                                            cat_names = []
+                                            for match in matched:
+                                                cat_data = ref_manager.get_category_by_id(match.get("category_id"))
+                                                name = cat_data.get("category_label", match.get("category_id")) if cat_data else match.get("category_id")
+                                                cat_names.append(f"{name} ({match.get('confidence_score')})")
+                                            
+                                            results.append({
+                                                "model_code": m_code,
+                                                "product_summary": class_result.get("analyzed_product", "Summary unavailable"),
+                                                "matched_categories": " | ".join(cat_names) if cat_names else "No Regulatory Match"
+                                            })
+                                        else:
+                                            results.append({"model_code": m_code, "product_summary": "Classification Error", "matched_categories": class_result["error"]})
+                                    else:
+                                        results.append({"model_code": m_code, "product_summary": "Extraction Error", "matched_categories": profile["error"]})
+                                except Exception as e:
+                                    results.append({"model_code": m_code, "product_summary": "Process Error", "matched_categories": str(e)})
+                                    
+                                # Délai de sécurité strict (8s) pour ne pas griller le quota Google Free Tier
+                                time.sleep(8) 
+                                progress_bar.progress((idx + 1) / len(df))
+                                
+                            status_text.text("Bulk Process Complete!")
+                            
+                            # Affichage et export
+                            res_df = pd.DataFrame(results)
+                            st.success(f"Successfully analyzed {len(df)} products!")
+                            st.dataframe(res_df)
+                            
+                            csv_results = res_df.to_csv(index=False).encode('utf-8')
+                            st.download_button("⬇️ Download Final Results", data=csv_results, file_name="bulk_analysis_results.csv", mime="text/csv")
+                            
+                    except Exception as e:
+                        st.error(f"Error reading CSV: {str(e)}")
 
     # --- ÉTAPE 1 : LE PRODUCT BRIEF ---
     st.subheader("1. Product Brief")
@@ -197,15 +290,11 @@ def main():
             "Technical Specs or Use Case (Edit freely before analysis)", 
             value=st.session_state["final_brief"],
             height=200,
-            placeholder="Paste your product description here, or use the Data Import tools above..."
+            placeholder="Paste your product description here, or use the Data Import tools above for single items..."
         )
         submitted = st.form_submit_button("Run Classification", type="primary")
 
-    if st.session_state["raw_snippets"]:
-        with st.expander("🔍 Debug: View Raw Web Scraped Data"):
-            st.text_area("What the scraper found:", value=st.session_state["raw_snippets"], height=200, disabled=True)
-
-    # --- ÉTAPE 2 : CLASSIFICATION ---
+    # --- ÉTAPE 2 : CLASSIFICATION SIMPLE ---
     if submitted:
         if not product_desc.strip() or product_desc.strip() == "Product Code : Unknown. . Key tech: . Primary function: .":
             st.error("Please provide a valid product description.")
@@ -223,10 +312,6 @@ def main():
                     st.success("Classification Complete!")
                     st.divider()
                     
-                    if st.session_state["scraped_profile"] and not "error" in st.session_state["scraped_profile"]:
-                        with st.expander("🛠️ View Structured Tech Profile (JSON)"):
-                            st.json(st.session_state["scraped_profile"])
-                            
                     st.markdown("### 🏷️ Classification Results")
                     matched = result.get("matched_categories", [])
                     
