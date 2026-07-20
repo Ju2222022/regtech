@@ -18,3 +18,6 @@ SAMR,China,Product Safety & Market,Web Scraping,ZH,https://www.samr.gov.cn/,True
 MIIT,China,Electronics & Telecom,Web Scraping,ZH,https://www.miit.gov.cn/,True
 BIS,India,Standards & Electronics,Web Scraping,EN,https://www.bis.gov.in/,True
 WPC,India,Radio & Telecom,Web Scraping,EN,https://wpc.dot.gov.in/,True
+ECOLEX,Global,Environment & Sustainability,API JSON,EN,https://www.ecolex.org/api/v1/legislation/,True
+LegiScan,USA,State-Level Legislation,API JSON,EN,https://api.legiscan.com/,True
+GDELT Project,Global,News & Regulatory Signals,API JSON,EN,https://api.gdeltproject.org/api/v2/doc/doc,True
