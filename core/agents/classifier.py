@@ -1,6 +1,7 @@
 import json
 import re
-import requests
+import urllib.request
+import urllib.error
 import streamlit as st
 
 class ProductClassifierAgent:
@@ -59,29 +60,28 @@ class ProductClassifierAgent:
         prompt = self._build_structured_prompt(product_description)
         
         try:
-            # 1. Nettoyage absolu de la clé API
             raw_key = str(st.secrets["GEMINI_API_KEY"])
             api_key = "".join(raw_key.split())
             
-            # 2. URL fixée en dur vers le modèle stable
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-            url = url.encode('ascii', 'ignore').decode('ascii')
+            url = url.encode('ascii', 'ignore').decode('ascii').strip()
             
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"temperature": 0.1}
             }
             
-            response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
+            data = json.dumps(payload).encode('utf-8')
+            headers = {'Content-Type': 'application/json'}
             
-            if response.status_code != 200:
-                return {"error": f"API HTTP {response.status_code}: {response.text}"}
+            # Utilisation de urllib au lieu de requests
+            req = urllib.request.Request(url, data=data, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as response:
+                resp_data = json.loads(response.read().decode('utf-8'))
                 
-            data = response.json()
-            raw_text = data['candidates'][0]['content']['parts'][0]['text']
+            raw_text = resp_data['candidates'][0]['content']['parts'][0]['text']
             
-            # 3. Extraction des Tokens d'utilisation
-            usage = data.get("usageMetadata", {})
+            usage = resp_data.get("usageMetadata", {})
             total_tokens = usage.get("totalTokenCount", 0)
             
             result = self._clean_json_output(raw_text)
