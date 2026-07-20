@@ -4,9 +4,7 @@ import os
 import json
 import urllib.request
 import urllib.error
-import pandas as pd
 import re
-import requests
 
 # Connexion au backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -63,27 +61,26 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     prompt = f"{system_prompt}\n\nModel code: {model_code}\nDomain: {domain}\n\nSearch snippets:\n{snippets_text[:4000]}"
     
     try:
-        # 1. Nettoyage absolu de la clé API
         raw_key = str(st.secrets["GEMINI_API_KEY"])
         api_key = "".join(raw_key.split())
         
-        # 2. URL fixée en dur vers le modèle stable
         url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=){api_key}"
-        url = url.encode('ascii', 'ignore').decode('ascii')
+        url = url.encode('ascii', 'ignore').decode('ascii').strip()
         
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.1}
         }
         
+        data = json.dumps(payload).encode('utf-8')
         headers = {'Content-Type': 'application/json'}
-        response = requests.post(url, headers=headers, json=payload)
         
-        if response.status_code != 200:
-            return {"error": f"HTTP {response.status_code}: {response.text}"}
+        # Utilisation de urllib au lieu de requests
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            resp_data = json.loads(response.read().decode('utf-8'))
             
-        data = response.json()
-        raw_text = data['candidates'][0]['content']['parts'][0]['text']
+        raw_text = resp_data['candidates'][0]['content']['parts'][0]['text']
         return clean_json_output(raw_text)
         
     except Exception as e:
