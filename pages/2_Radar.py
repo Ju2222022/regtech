@@ -54,7 +54,7 @@ def clean_json_output(text: str) -> dict:
 
 def get_best_gemini_model(api_key: str) -> str:
     """Interroge l'API pour lister les modèles autorisés et sélectionne le meilleur, en évitant les pièges de Google."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models?key=](https://generativelanguage.googleapis.com/v1beta/models?key=){api_key}"
     try:
         resp = requests.get(url)
         if resp.status_code == 200:
@@ -99,7 +99,7 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
         
         # Récupération dynamique du nom du modèle
         model_name = get_best_gemini_model(api_key)
-        url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+        url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
         
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -210,7 +210,8 @@ def main():
             height=150,
             placeholder="e.g., We are developing a new running smartwatch..."
         )
-        submitted = st.form_submit_button("Launch Regulatory Analysis", type="primary")
+        # Modification du texte du bouton
+        submitted = st.form_submit_button("Run Classification", type="primary")
 
     # --- MODULE DEBUG (Pour comprendre ce que l'IA a lu) ---
     if st.session_state["raw_snippets"]:
@@ -226,24 +227,27 @@ def main():
                 result = classifier_agent.analyze_product(product_desc)
                 
                 if "error" in result:
-                    st.error(f"Analysis Failed: {result['error']}")
+                    st.error(f"Classification Failed: {result['error']}")
                 else:
-                    st.success("Analysis Complete!")
+                    # NOTIFICATION DE COÛT (Toast)
+                    tokens = result.get("_tokens", 0)
+                    cost_estimate = (tokens / 1000000) * 0.15 
+                    st.toast(f"⚡ Classification OK | {tokens} tokens utilisés (~${cost_estimate:.6f})", icon="🪙")
+                    
+                    st.success("Classification Complete!")
                     st.divider()
                     
                     if st.session_state["scraped_profile"] and not "error" in st.session_state["scraped_profile"]:
                         with st.expander("🛠️ View Structured Tech Profile (JSON)"):
                             st.json(st.session_state["scraped_profile"])
                             
-                    st.markdown("### 🤖 AI Product Understanding")
-                    st.info(result.get("analyzed_product", ""))
+                    # La section "AI Product Understanding" a été supprimée
                     
-                    st.divider()
-                    st.markdown("### 📡 Radar: Applicable Categories")
+                    st.markdown("### 🏷️ Classification Results")
                     matched = result.get("matched_categories", [])
                     
                     if not matched:
-                        st.warning("No regulatory category was detected for this product.")
+                        st.warning("No corresponding category found in the current internal ontology.")
                     else:
                         for match in matched:
                             cat_id = match.get("category_id")
@@ -256,17 +260,7 @@ def main():
                             
                             with st.expander(f"{icon} {label} (Confidence: {score})", expanded=True):
                                 st.markdown(f"**AI Justification:** *{justification}*")
-                                if cat_details:
-                                    st.divider()
-                                    col_fw, col_deliv = st.columns(2)
-                                    with col_fw:
-                                        st.markdown("**⚖️ Legal Framework**")
-                                        for fw in cat_details.get("reference_legal_framework", []):
-                                            st.markdown(f"- {fw}")
-                                    with col_deliv:
-                                        st.markdown("**📋 Deliverables**")
-                                        for dl in cat_details.get("expected_deliverables", []):
-                                            st.markdown(f"- {dl}")
+                                # Les colonnes "Legal Framework" et "Deliverables" ont été supprimées
 
 if __name__ == "__main__":
     main()
