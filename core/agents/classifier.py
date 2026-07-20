@@ -60,18 +60,17 @@ class ProductClassifierAgent:
         prompt = self._build_structured_prompt(product_description)
         
         try:
-            # 1. Nettoyage absolu de la clé (supprime tous les espaces, retours à la ligne)
+            # 1. Nettoyage absolu de la clé API
             raw_key = str(st.secrets["GEMINI_API_KEY"])
             api_key = "".join(raw_key.split())
             
-            # 2. Modèle fixé en dur (Plus rapide, plus stable, pas de requête intermédiaire)
-            model_name = "models/gemini-1.5-flash"
+            # 2. On réactive le détecteur dynamique
+            model_name = self._get_best_gemini_model(api_key)
+            if not model_name:
+                model_name = "models/gemini-1.5-flash-latest" # Fallback de sécurité
             
-            # 3. Construction de l'URL
-            url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
-            
-            # 4. BOUCLIER ANTI-CARACTÈRES INVISIBLES
-            # On force l'encodage strict en ASCII pour détruire tout caractère parasite lié au copier-coller
+            # 3. Construction de l'URL avec bouclier anti-caractères invisibles
+            url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
             url = url.encode('ascii', 'ignore').decode('ascii')
             
             payload = {
@@ -87,7 +86,7 @@ class ProductClassifierAgent:
             data = response.json()
             raw_text = data['candidates'][0]['content']['parts'][0]['text']
             
-            # 5. Extraction des Tokens d'utilisation pour le calcul des coûts
+            # 4. Extraction des Tokens d'utilisation
             usage = data.get("usageMetadata", {})
             total_tokens = usage.get("totalTokenCount", 0)
             
