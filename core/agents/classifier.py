@@ -88,11 +88,15 @@ class ProductClassifierAgent:
         prompt = self._build_structured_prompt(product_description)
         
         try:
-            # Nettoyage des variables pour éviter les espaces invisibles
-            api_key = st.secrets["GEMINI_API_KEY"].strip()
-            model_name = self._get_best_gemini_model(api_key).strip()
+            # 1. Nettoyage extrême de la clé API (espaces, sauts de ligne, guillemets parasites)
+            api_key = str(st.secrets["GEMINI_API_KEY"]).replace('\n', '').replace('\r', '').replace('"', '').replace("'", "").strip()
             
-            url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
+            # 2. Nettoyage du nom du modèle
+            model_name = self._get_best_gemini_model(api_key).replace('\n', '').replace('\r', '').strip()
+            
+            # 3. Construction et nettoyage de l'URL
+            url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+            url = url.strip().replace(" ", "") # Coup d'aspirateur final
             
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
@@ -100,6 +104,16 @@ class ProductClassifierAgent:
             }
             
             response = requests.post(url, headers={'Content-Type': 'application/json'}, json=payload)
+            
+            if response.status_code != 200:
+                return {"error": f"API HTTP {response.status_code}: {response.text}"}
+                
+            data = response.json()
+            raw_text = data['candidates'][0]['content']['parts'][0]['text']
+            return self._clean_json_output(raw_text)
+            
+        except Exception as e:
+            return {"error": f"Failed to analyze product: {str(e)}"}
             
             if response.status_code != 200:
                 return {"error": f"API HTTP {response.status_code}: {response.text}"}
