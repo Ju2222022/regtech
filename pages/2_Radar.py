@@ -95,11 +95,16 @@ def extract_tech_profile_with_gemini(snippets_text: str, model_code: str, domain
     prompt = f"{system_prompt}\n\nModel code: {model_code}\nDomain: {domain}\n\nSearch snippets:\n{snippets_text[:4000]}"
     
     try:
-        api_key = st.secrets["GEMINI_API_KEY"]
+        # 1. Nettoyage absolu de la clé API
+        raw_key = str(st.secrets["GEMINI_API_KEY"])
+        api_key = "".join(raw_key.split())
         
-        # Récupération dynamique du nom du modèle
-        model_name = get_best_gemini_model(api_key)
-        url = f"[https://generativelanguage.googleapis.com/v1beta/](https://generativelanguage.googleapis.com/v1beta/){model_name}:generateContent?key={api_key}"
+        # 2. Modèle fixé en dur (Plus rapide et stable)
+        model_name = "models/gemini-1.5-flash"
+        
+        # 3. Construction de l'URL avec bouclier anti-caractères invisibles
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+        url = url.encode('ascii', 'ignore').decode('ascii')
         
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
