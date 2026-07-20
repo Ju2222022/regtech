@@ -1,0 +1,18 @@
+Source Name,Geographic Zone,Regulatory Domain,Acquisition Type,Query Language,URL / Endpoint,Active
+EUR-Lex,EU,Cross-Domain,API JSON,Multi,https://eur-lex.europa.eu/api,True
+Safety Gate (RAPEX),EU,Product Safety,API JSON,EN,https://ec.europa.eu/safety-gate-alerts/api,True
+ECHA,EU,Chemicals (REACH/RoHS),Web Scraping,EN,https://echa.europa.eu/home,True
+Légifrance,France,Cross-Domain,API JSON,FR,https://piste.gouv.fr/,True
+DGCCRF,France,Consumer Goods,Web Scraping,FR,https://www.economie.gouv.fr/dgccrf,True
+Legislation.gov.uk,UK,Cross-Domain,API JSON,EN,https://www.legislation.gov.uk/data.json,True
+OPSS,UK,Product Safety,Web Scraping,EN,https://www.gov.uk/government/organisations/office-for-product-safety-and-standards,True
+Fedlex,Switzerland,Cross-Domain,API XML,Multi,https://www.fedlex.admin.ch/api,True
+Federal Register,USA,Cross-Domain,API JSON,EN,https://www.federalregister.gov/api/v1/,True
+CPSC,USA,Product Safety,API JSON,EN,https://www.cpsc.gov/cgibin/api.json,True
+FCC,USA,Electronics & Radio,API JSON,EN,https://apps.fcc.gov/edocs_public/api/,True
+Health Canada Recalls,Canada,Product Safety,RSS Feed,EN,https://recalls-rappels.canada.ca/en/feed,True
+ISED,Canada,Electronics & Radio,Web Scraping,EN,https://ised-isde.canada.ca/,True
+SAMR,China,Product Safety & Market,Web Scraping,ZH,https://www.samr.gov.cn/,True
+MIIT,China,Electronics & Telecom,Web Scraping,ZH,https://www.miit.gov.cn/,True
+BIS,India,Standards & Electronics,Web Scraping,EN,https://www.bis.gov.in/,True
+WPC,India,Radio & Telecom,Web Scraping,EN,https://wpc.dot.gov.in/,True
