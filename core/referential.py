@@ -5,7 +5,7 @@ import csv
 class ReferentialManager:
     def __init__(self):
         self.db_path = os.path.join(os.path.dirname(__file__), 'ontology_db.json')
-        self.default_csv_path = os.path.join(os.path.dirname(__file__), 'default_ontology.csv')
+        self.default_csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
         self.data = self._load_database()
 
     def _load_database(self):
