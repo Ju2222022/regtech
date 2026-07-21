@@ -2,7 +2,6 @@ import streamlit as st
 import time
 import os
 import pandas as pd
-import csv
 
 st.set_page_config(page_title="Watch Tower | RegWatch", page_icon="📡", layout="wide")
 
@@ -14,7 +13,9 @@ def get_active_countries():
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
         df = pd.read_csv(csv_path)
-        return sorted(df['Geographic Zone'].dropna().unique().tolist())
+        if 'Geographic Zone' in df.columns:
+            return sorted(df['Geographic Zone'].dropna().unique().tolist())
+        return ["EU", "France", "USA", "China", "UK", "Canada", "India"]
     except Exception:
         return ["EU", "France", "USA", "China", "UK", "Canada", "India"]
 
@@ -27,7 +28,7 @@ def get_ontology_data():
         return df
     except Exception:
         # Fallback empty dataframe if file missing
-        return pd.DataFrame(columns=["perimeter", "internal_owner_group", "category_label"])
+        return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
 
 # ==========================================
 # SESSION STATE INITIALIZATION
@@ -81,25 +82,36 @@ def main():
     
     with col1:
         # PERIMETER
-        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if not ontology_df.empty else ["Electronics"]
+        if 'perimeter' in ontology_df.columns:
+            all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist())
+        else:
+            all_perimeters = ["Electronics"]
         selected_perimeters = st.multiselect("Perimeter", all_perimeters)
         
     with col2:
         # CATEGORY (Filtered by Perimeter)
-        if selected_perimeters:
+        if selected_perimeters and 'perimeter' in ontology_df.columns:
             filtered_cats = ontology_df[ontology_df['perimeter'].isin(selected_perimeters)]
         else:
             filtered_cats = ontology_df
-        all_categories = sorted(filtered_cats['internal_owner_group'].dropna().unique().tolist()) if not filtered_cats.empty else ["Mobility", "Wearables"]
+            
+        if 'category_label' in filtered_cats.columns:
+            all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist())
+        else:
+            all_categories = ["Mobility", "Wearables"]
         selected_categories = st.multiselect("Category", all_categories)
         
     with col3:
         # SUB-CATEGORY (Filtered by Category)
-        if selected_categories:
-            filtered_subcats = filtered_cats[filtered_cats['internal_owner_group'].isin(selected_categories)]
+        if selected_categories and 'category_label' in filtered_cats.columns:
+            filtered_subcats = filtered_cats[filtered_cats['category_label'].isin(selected_categories)]
         else:
             filtered_subcats = filtered_cats
-        all_subcategories = sorted(filtered_subcats['category_label'].dropna().unique().tolist()) if not filtered_subcats.empty else ["E-Bikes (EPAC)", "Smartwatches"]
+            
+        if 'sub_category_label' in filtered_subcats.columns:
+            all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist())
+        else:
+            all_subcategories = ["E-Bikes (EPAC)", "Smartwatches"]
         selected_subcategories = st.multiselect("Sub-Category", all_subcategories)
 
     with col4:
