@@ -1,221 +1,310 @@
 import streamlit as st
-import pandas as pd
+import sys
 import os
-import json
-from datetime import datetime
+import copy
+import uuid
+import pandas as pd
 
-st.set_page_config(page_title="Legal Card Editor | RegWatch", page_icon="📝", layout="wide")
+# Connexion au moteur backend
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from core.referential import ReferentialManager
 
-# ==========================================
-# DATA LOADING
-# ==========================================
-@st.cache_data
-def get_active_countries():
-    try:
-        csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
-        df = pd.read_csv(csv_path)
-        if 'Geographic Zone' in df.columns:
-            return sorted(df['Geographic Zone'].dropna().unique().tolist())
-        return ["EU", "France", "USA", "China"]
-    except Exception:
-        return ["EU", "France", "USA", "China"]
-
-@st.cache_data
-def get_ontology_data():
-    try:
-        csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
-        return pd.read_csv(csv_path)
-    except Exception:
-        return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
-
-def generate_markdown_export(data_dict):
-    """Generates a human-readable Markdown string from the Legal Card dictionary."""
-    md = f"# Legal Card: {data_dict['metadata']['category']} - {data_dict['metadata']['market']}\n\n"
-    md += f"**Perimeter:** {data_dict['metadata']['perimeter']} | **Sub-Category:** {data_dict['metadata']['sub_category']}\n"
-    md += f"**Last Updated:** {data_dict['metadata']['last_updated']}\n\n---\n\n"
-    
-    md += "## 1. Identity & Scope\n"
-    md += f"**Legal Definition:**\n{data_dict['identity']['definition']}\n\n"
-    md += f"**HS Codes:** {data_dict['identity']['hs_codes']}\n\n"
-    
-    md += "## 2. Technical & Product Requirements\n"
-    for req in data_dict['requirements']:
-        if any(req.values()): # Check if row is not totally empty
-            md += f"* **[{req.get('Type', '')}]** {req.get('Parameter', '')}: {req.get('Limit', '')} *(Ref: {req.get('Reference', '')})*\n"
-    
-    md += "\n## 3. Marking & Information\n"
-    for mark in data_dict['markings']:
-        if any(mark.values()):
-            mand = "🔴 Mandatory" if mark.get('Mandatory') else "⚪ Optional"
-            md += f"* **{mark.get('Placement', '')}** - {mark.get('Requirement', '')} ({mand}): {mark.get('Description', '')}\n"
-            
-    md += "\n## 4. Conformity Documents\n"
-    for doc in data_dict['documents']:
-        if any(doc.values()):
-            md += f"* **{doc.get('Document', '')}** (Retention: {doc.get('Retention', '')}): {doc.get('Description', '')}\n"
-            
-    return md
+st.set_page_config(page_title="Settings | RegWatch", page_icon="⚙️", layout="wide")
 
 def main():
-    st.title("📝 Legal Card Editor")
-    st.markdown("Manage your single source of truth for product compliance.")
+    st.title("⚙️ Platform Settings (Super Admin)")
+    st.markdown("Manage your ontology structure, tenant profile, and global logic.")
 
-    # ==========================================
-    # HEADER : DYNAMIC MATRIX SELECTION
-    # ==========================================
-    st.markdown("### 🎯 Card Selection")
-    
-    ontology_df = get_ontology_data()
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if 'perimeter' in ontology_df.columns else ["Electronics"]
-        selected_perimeter = st.selectbox("Perimeter", all_perimeters)
+    # Initialisation du gestionnaire de données
+    ref_manager = ReferentialManager()
+    data = ref_manager.data
+
+    # Ajout du 4ème onglet pour l'Import/Export
+    tab1, tab2, tab3, tab4 = st.tabs(["🗂️ Ontology Builder", "🏢 Tenant Profile", "🌐 Global Rules", "📥 Import / Export"])
+
+    # ---------------------------------------------------------
+    # ONGLET 1 : ONTOLOGIE (Vue Arborescente et Édition)
+    # ---------------------------------------------------------
+    with tab1:
+        st.subheader("Ontology Tree View")
+        st.markdown("Your regulatory perimeters and sub-categories are grouped by Category Label.")
         
-    with col2:
-        filtered_cats = ontology_df[ontology_df['perimeter'] == selected_perimeter] if 'perimeter' in ontology_df.columns else ontology_df
-        all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if 'category_label' in filtered_cats.columns else ["Audio"]
-        selected_category = st.selectbox("Category", all_categories)
+        if "editing_category" not in st.session_state:
+            st.session_state["editing_category"] = None
+
+        categories = ref_manager.get_categories()
         
-    with col3:
-        filtered_subcats = filtered_cats[filtered_cats['category_label'] == selected_category] if 'category_label' in filtered_cats.columns else filtered_cats
-        all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if 'sub_category_label' in filtered_subcats.columns else ["Mp3 player"]
-        selected_subcategory = st.selectbox("Sub-Category", all_subcategories)
-
-    with col4:
-        available_countries = get_active_countries()
-        selected_market = st.selectbox("Target Market", available_countries)
-
-    st.divider()
-
-    # ==========================================
-    # MAIN LAYOUT: 75% Editor / 25% Actions
-    # ==========================================
-    main_col, side_col = st.columns([3, 1], gap="large")
-
-    with main_col:
-        # --- SECTION 1: IDENTITY ---
-        st.subheader("1. Identity & Scope")
-        product_def = st.text_area("Product Legal Definition", "Enter the official legal definition for this product category...", height=80)
-        hs_codes = st.text_input("Covered HS Codes (Customs)", "Ex: 8527.13.00, 8519.81.00")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- SECTION 2: PRODUCT REQUIREMENTS ---
-        st.subheader("2. Technical & Product Requirements")
-        req_df_init = pd.DataFrame([{"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": ""}])
-        req_df_out = st.data_editor(
-            req_df_init,
-            column_config={
-                "Type": st.column_config.SelectboxColumn("Requirement Type", options=["Chemical", "Mechanical", "Electrical", "Radio", "Environmental", "Safety", "Other"], required=True),
-                "Parameter": st.column_config.TextColumn("Parameter / Substance", required=True),
-                "Limit": st.column_config.TextColumn("Limit / Target", required=True),
-                "Reference": st.column_config.TextColumn("Regulatory Reference")
-            },
-            num_rows="dynamic", use_container_width=True, key="req_editor"
-        )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- SECTION 3: MARKING & INFORMATION ---
-        st.subheader("3. Marking & Information")
-        marking_df_init = pd.DataFrame([{"Placement": "On Product", "Requirement": "", "Description": "", "Mandatory": True}])
-        marking_df_out = st.data_editor(
-            marking_df_init,
-            column_config={
-                "Placement": st.column_config.SelectboxColumn("Placement", options=["On Product", "On Packaging", "In Manual", "E-commerce (Web)", "Accompanying Document"], required=True),
-                "Requirement": st.column_config.TextColumn("Requirement", required=True),
-                "Description": st.column_config.TextColumn("Details / Content"),
-                "Mandatory": st.column_config.CheckboxColumn("Mandatory", default=True)
-            },
-            num_rows="dynamic", use_container_width=True, key="marking_editor"
-        )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- SECTION 4: MARKET ACCESS & DOCS ---
-        st.subheader("4. Conformity Documents & Access")
-        docs_df_init = pd.DataFrame([{"Document": "", "Description": "", "Retention": ""}])
-        docs_df_out = st.data_editor(docs_df_init, num_rows="dynamic", use_container_width=True, key="docs_editor")
-        
-        st.divider()
-
-        with st.expander("🕒 History", expanded=False):
-            st.markdown(f"* **{datetime.now().strftime('%Y-%m-%d')}** - Julien Dlubala - *Draft session.*")
-
-    # ==========================================
-    # BUILD DATA OBJECT (JSON)
-    # ==========================================
-    legal_card_data = {
-        "metadata": {
-            "perimeter": selected_perimeter,
-            "category": selected_category,
-            "sub_category": selected_subcategory,
-            "market": selected_market,
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "owner": "Julien Dlubala"
-        },
-        "identity": {
-            "definition": product_def,
-            "hs_codes": hs_codes
-        },
-        "requirements": req_df_out.to_dict('records'),
-        "markings": marking_df_out.to_dict('records'),
-        "documents": docs_df_out.to_dict('records')
-    }
-    
-    # Convert dict to JSON string
-    json_string = json.dumps(legal_card_data, indent=4, ensure_ascii=False)
-    # Convert dict to Markdown string
-    md_string = generate_markdown_export(legal_card_data)
-
-    # ==========================================
-    # SIDE PANEL: Actions
-    # ==========================================
-    with side_col:
-        st.markdown("### 💾 Storage")
-        if st.button("Save to Internal Database", type="primary", use_container_width=True):
-            try:
-                # Create data/legal_cards directory if it doesn't exist
-                save_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'legal_cards')
-                os.makedirs(save_dir, exist_ok=True)
+        # === BLOC ÉDITION ===
+        if st.session_state["editing_category"]:
+            cat_to_edit = ref_manager.get_category_by_id(st.session_state["editing_category"])
+            
+            if cat_to_edit:
+                st.warning(f"✏️ **Editing Mode:** {cat_to_edit.get('category_label')} ({cat_to_edit.get('category_id')})")
                 
-                # Format filename securely
-                safe_cat = str(selected_category).replace(" ", "_").replace("/", "-")
-                safe_market = str(selected_market).replace(" ", "_").replace("/", "-")
-                filename = f"{safe_cat}_{safe_market}.json"
-                file_path = os.path.join(save_dir, filename)
+                with st.form("edit_category_form"):
+                    col_macro, col_category = st.columns(2)
+                    with col_macro:
+                        edit_perimeter = st.text_input("Macro Perimeter", value=cat_to_edit.get('perimeter', ''))
+                    with col_category:
+                        edit_category_val = st.text_input("Category Label", value=cat_to_edit.get('internal_owner_group', ''))
+                        
+                    col_label, col_id = st.columns(2)
+                    with col_label:
+                        edit_label = st.text_input("Sub-Category Label", value=cat_to_edit.get('category_label', ''))
+                    with col_id:
+                        st.text_input("Unique ID (Cannot be changed)", value=cat_to_edit.get('category_id', ''), disabled=True)
+                    
+                    edit_def = st.text_area("Business Definition", value=cat_to_edit.get('business_definition', ''))
+                    
+                    st.markdown("**Matching Configuration (Comma separated)**")
+                    config = cat_to_edit.get("matching_engine_config", {})
+                    str_strict = ", ".join(config.get("strict_technical_attributes", []))
+                    str_fuzzy = ", ".join(config.get("fuzzy_keywords_fallbacks", []))
+                    
+                    edit_strict = st.text_area("Strict Attributes (Optional)", value=str_strict)
+                    edit_fuzzy = st.text_area("Keywords (Optional)", value=str_fuzzy)
+                    
+                    col_submit, col_cancel = st.columns([1, 5])
+                    with col_submit:
+                        submitted = st.form_submit_button("💾 Save Changes", type="primary")
+                    with col_cancel:
+                        canceled = st.form_submit_button("❌ Cancel")
+                        
+                    if canceled:
+                        st.session_state["editing_category"] = None
+                        st.rerun()
+                        
+                    if submitted:
+                        cat_to_edit["perimeter"] = edit_perimeter
+                        cat_to_edit["internal_owner_group"] = edit_category_val 
+                        cat_to_edit["category_label"] = edit_label
+                        cat_to_edit["business_definition"] = edit_def
+                        
+                        cat_to_edit["matching_engine_config"]["strict_technical_attributes"] = [x.strip() for x in edit_strict.split(",") if x.strip()]
+                        cat_to_edit["matching_engine_config"]["fuzzy_keywords_fallbacks"] = [x.strip() for x in edit_fuzzy.split(",") if x.strip()]
+                        
+                        if ref_manager.update_category(cat_to_edit):
+                            st.session_state["editing_category"] = None
+                            st.rerun()
+                st.divider()
+
+        # === BLOC AFFICHAGE NORMAL ===
+        elif not categories:
+            st.info("No categories defined. Start building your ontology below.")
+        else:
+            tree = {}
+            for cat in categories:
+                perimeter = cat.get('perimeter', 'Uncategorized Perimeter')
+                category_group = cat.get('internal_owner_group', 'Unassigned Category')
                 
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(json_string)
+                if perimeter not in tree:
+                    tree[perimeter] = {}
+                if category_group not in tree[perimeter]:
+                    tree[perimeter][category_group] = []
+                    
+                tree[perimeter][category_group].append(cat)
+            
+            for perimeter_name, categories_group in tree.items():
+                st.markdown(f"## 🌍 {perimeter_name}")
                 
-                st.success(f"File saved: `{filename}`")
-            except Exception as e:
-                st.error(f"Save failed: {str(e)}")
+                for category_name, sub_categories in categories_group.items():
+                    st.markdown(f"#### 📁 {category_name}")
+                    
+                    for cat in sub_categories:
+                        label = cat.get('category_label', 'Unnamed')
+                        cat_id = cat.get('category_id', 'NO_ID')
+                        
+                        with st.expander(f"📄 {label}  |  ID: {cat_id}"):
+                            st.write(f"**Definition:** {cat.get('business_definition', '')}")
+                            st.write(f"**Scope:** {cat.get('operational_scope', '')}")
+                            
+                            st.divider()
+                            col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
+                            with col_edit:
+                                if st.button("✏️ Modify", key=f"edit_{cat_id}"):
+                                    st.session_state["editing_category"] = cat_id
+                                    st.rerun()
+                            with col_dup:
+                                if st.button("📑 Duplicate", key=f"dup_{cat_id}"):
+                                    new_cat = copy.deepcopy(cat)
+                                    new_cat["category_id"] = f"{cat_id}_COPY"
+                                    new_cat["category_label"] = f"{label} (Copy)"
+                                    if ref_manager.add_category(new_cat):
+                                        st.rerun()
+                                    else:
+                                        st.error("A copy already exists. Please modify its ID first before duplicating again.")
+                            with col_del:
+                                if st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary"):
+                                    if ref_manager.delete_category(cat_id):
+                                        st.rerun()
+                    
+                st.divider()
         
-        st.divider()
+        # Formulaire d'ajout 
+        if not st.session_state["editing_category"]:
+            st.subheader("➕ Add New Sub-Category")
+            with st.expander("Open Category Creator Form"):
+                with st.form("add_category_form"):
+                    col_macro, col_category, col_label = st.columns(3)
+                    with col_macro:
+                        new_perimeter = st.text_input("Perimeter", placeholder="e.g., Electronics")
+                    with col_category:
+                        new_category_val = st.text_input("Category Label", placeholder="e.g., Energy Storage")
+                    with col_label:
+                        new_label = st.text_input("Sub-Category Label", placeholder="e.g., Coin Cells & Button Batteries")
+                    
+                    submitted = st.form_submit_button("Create Skeleton", type="primary")
+                    
+                    if submitted:
+                        if not new_label:
+                            st.error("Error: A Sub-Category Label is required.")
+                        else:
+                            generated_id = f"CAT_{uuid.uuid4().hex[:8].upper()}"
+                            
+                            new_cat = {
+                                "perimeter": new_perimeter if new_perimeter else "Uncategorized Perimeter",
+                                "internal_owner_group": new_category_val if new_category_val else "Unassigned Category",
+                                "category_id": generated_id,
+                                "category_label": new_label,
+                                "business_definition": "Definition to be added...",
+                                "operational_scope": "Scope to be defined...",
+                                "matching_engine_config": {"strict_technical_attributes": [], "fuzzy_keywords_fallbacks": []},
+                                "expected_deliverables": [],
+                                "reference_legal_framework": [],
+                                "automated_watcher_queries": []
+                            }
+                            if ref_manager.add_category(new_cat):
+                                st.rerun()
+                            else:
+                                st.error("Error: Could not create the category.")
+                                
+    # ---------------------------------------------------------
+    # ONGLET 2 : PROFIL
+    # ---------------------------------------------------------
+    with tab2:
+        st.subheader("Tenant Information")
+        profile = data.get("tenant_profile", {})
+        col1, col2 = st.columns(2)
+        with col1:
+            st.text_input("Company Name", value=profile.get("company_name", ""))
+        with col2:
+            st.text_input("Industry Sector", value=profile.get("industry_sector", ""))
+        st.button("💾 Save Profile Settings")
+
+    # ---------------------------------------------------------
+    # ONGLET 3 : RÈGLES GLOBALES 
+    # ---------------------------------------------------------
+    with tab3:
+        st.subheader("Global Routing Rules")
+        rules = data.get("global_routing_rules", {})
         
-        st.markdown("### 📥 Export")
-        st.download_button(
-            label="Download JSON Data",
-            data=json_string,
-            file_name=f"LegalCard_{str(selected_category).replace(' ','_')}_{str(selected_market).replace(' ','_')}.json",
-            mime="application/json",
-            use_container_width=True
-        )
-        
-        st.download_button(
-            label="Download Text (Markdown)",
-            data=md_string,
-            file_name=f"LegalCard_{str(selected_category).replace(' ','_')}_{str(selected_market).replace(' ','_')}.md",
-            mime="text/markdown",
-            use_container_width=True
-        )
-        
-        st.divider()
-        st.markdown("### 📡 Watch Tower Alerts")
-        st.info("✅ No active alerts for this specific Legal Card.")
+        st.checkbox("Enable Mandatory Fallback Category", value=rules.get("has_mandatory_fallback", False))
+        st.text_input("Fallback Category ID", value=rules.get("mandatory_fallback_category_id", ""))
+        st.checkbox("Allow Multi-labeling (Overlaps)", value=rules.get("allow_multi_labeling", True))
+        st.button("💾 Save Engine Rules")
+
+    # ---------------------------------------------------------
+    # ONGLET 4 : IMPORT / EXPORT CSV (Bulk)
+    # ---------------------------------------------------------
+    with tab4:
+        st.subheader("📥 Ontology Import / Export")
+        st.markdown("Use this module to bulk update the ontology or extract it for external sharing.")
+
+        col_export, col_import = st.columns(2)
+
+        # ====== BLOC 1 : EXPORT ET TEMPLATE ======
+        with col_export:
+            st.markdown("### 1. Export Current Database")
+            
+            # Aplatissement du JSON vers format plat (CSV)
+            export_data = []
+            for cat in ref_manager.get_categories():
+                row = {
+                    "category_id": cat.get("category_id", ""),
+                    "perimeter": cat.get("perimeter", ""),
+                    "category_label": cat.get("internal_owner_group", ""),
+                    "sub_category_label": cat.get("category_label", ""),
+                    "business_definition": cat.get("business_definition", ""),
+                    # Utilisation d'un délimiteur ' | ' pour transformer les listes en chaîne de caractères
+                    "strict_attributes": " | ".join(cat.get("matching_engine_config", {}).get("strict_technical_attributes", [])),
+                    "keywords": " | ".join(cat.get("matching_engine_config", {}).get("fuzzy_keywords_fallbacks", [])),
+                    "legal_framework": " | ".join(cat.get("reference_legal_framework", [])),
+                    "deliverables": " | ".join(cat.get("expected_deliverables", []))
+                }
+                export_data.append(row)
+            
+            df_export = pd.DataFrame(export_data)
+            csv_export = df_export.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇️ Download Full Ontology (CSV)", data=csv_export, file_name="ontology_export.csv", mime="text/csv")
+            
+            st.divider()
+            
+            st.markdown("### 2. Blank Template")
+            st.markdown("Start from scratch with a clean, perfectly formatted template.")
+            df_template = pd.DataFrame(columns=["category_id", "perimeter", "category_label", "sub_category_label", "business_definition", "strict_attributes", "keywords", "legal_framework", "deliverables"])
+            csv_template = df_template.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇️ Download CSV Template", data=csv_template, file_name="ontology_template.csv", mime="text/csv")
+
+        # ====== BLOC 2 : UPSERT (IMPORT INTELLIGENT) ======
+        with col_import:
+            st.markdown("### 3. Smart Bulk Import (Upsert)")
+            st.info("💡 **Rule:** If `category_id` exists in your file, it updates the existing entry. If the ID is empty, it creates a new entry. Use `|` to separate multiple items in list columns (e.g., `Bluetooth | WiFi`).")
+            
+            uploaded_file = st.file_uploader("Upload configured CSV", type=["csv"])
+            
+            if uploaded_file and st.button("🚀 Process Bulk Import", type="primary"):
+                try:
+                    df_import = pd.read_csv(uploaded_file)
+                    df_import = df_import.fillna("") # Remplace les valeurs vides par des chaînes de caractères
+                    
+                    updates_count = 0
+                    creates_count = 0
+                    
+                    for index, row in df_import.iterrows():
+                        cat_id = str(row.get("category_id", "")).strip()
+                        
+                        # Création de l'ID si la cellule est vide
+                        if not cat_id:
+                            cat_id = f"CAT_{uuid.uuid4().hex[:8].upper()}"
+                            is_new = True
+                        else:
+                            is_new = ref_manager.get_category_by_id(cat_id) is None
+
+                        # Fonction utilitaire pour repasser de "A | B" à la liste ["A", "B"]
+                        def parse_list(col_name):
+                            val = str(row.get(col_name, ""))
+                            return [x.strip() for x in val.split("|") if x.strip()]
+
+                        # Assemblage de l'objet métier
+                        cat_data = {
+                            "category_id": cat_id,
+                            "perimeter": str(row.get("perimeter", "Uncategorized")),
+                            "internal_owner_group": str(row.get("category_label", "Unassigned")),
+                            "category_label": str(row.get("sub_category_label", "Unnamed Sub-Category")),
+                            "business_definition": str(row.get("business_definition", "")),
+                            "matching_engine_config": {
+                                "strict_technical_attributes": parse_list("strict_attributes"),
+                                "fuzzy_keywords_fallbacks": parse_list("keywords")
+                            },
+                            "reference_legal_framework": parse_list("legal_framework"),
+                            "expected_deliverables": parse_list("deliverables")
+                        }
+                        
+                        # Logique d'Upsert
+                        if is_new:
+                            ref_manager.add_category(cat_data)
+                            creates_count += 1
+                        else:
+                            # On récupère l'ancienne pour ne pas écraser des données qui n'apparaissent pas dans le CSV (comme operational_scope)
+                            old_cat = ref_manager.get_category_by_id(cat_id)
+                            old_cat.update(cat_data) 
+                            ref_manager.update_category(old_cat)
+                            updates_count += 1
+                            
+                    st.success(f"✅ Import successful! Created: {creates_count} | Updated: {updates_count}")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing file: Make sure the column names match the template exactly. Details: {str(e)}")
 
 if __name__ == "__main__":
     main()
