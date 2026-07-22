@@ -137,7 +137,7 @@ def main():
                 else:
                     try:
                         tavily_key = st.secrets["TAVILY_API_KEY"]
-                        with st.spinner("Scraping Decathlon & extracting technical profile..."):
+                        with st.spinner("Scraping & extracting technical profile..."):
                             results = _tavily_search(f"Decathlon {model_code} {domain}", tavily_key)
                             if not results:
                                 st.error("No results found on the web for this code.")
