@@ -2,7 +2,15 @@ import streamlit as st
 import time
 import os
 import pandas as pd
-import csv
+from datetime import datetime
+
+# ==========================================
+# IMPORT DU MOTEUR IA
+# ==========================================
+try:
+    from core.agents.watcher import run_live_watch
+except ImportError:
+    st.error("Impossible de trouver `watcher.py`. Assure-toi qu'il est bien dans `core/agents/`.")
 
 st.set_page_config(page_title="Watch Tower | RegWatch", page_icon="📡", layout="wide")
 
@@ -14,7 +22,9 @@ def get_active_countries():
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
         df = pd.read_csv(csv_path)
-        return sorted(df['Geographic Zone'].dropna().unique().tolist())
+        if 'Geographic Zone' in df.columns:
+            return sorted(df['Geographic Zone'].dropna().unique().tolist())
+        return ["EU", "France", "USA", "China", "UK", "Canada", "India"]
     except Exception:
         return ["EU", "France", "USA", "China", "UK", "Canada", "India"]
 
@@ -27,7 +37,7 @@ def get_ontology_data():
         return df
     except Exception:
         # Fallback empty dataframe if file missing
-        return pd.DataFrame(columns=["perimeter", "internal_owner_group", "category_label"])
+        return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
 
 # ==========================================
 # SESSION STATE INITIALIZATION
@@ -35,31 +45,12 @@ def get_ontology_data():
 if "scan_executed" not in st.session_state:
     st.session_state.scan_executed = False
 
-# Mocking a database of signals with states ('inbox', 'bookmark', 'archive')
+# We start with an empty dict instead of mock data, but we keep the structure
 if "signals_db" not in st.session_state:
-    st.session_state.signals_db = {
-        "sig_1": {
-            "title": "[Draft] EU Battery Regulation: New removability requirements for e-scooters",
-            "market": "EU", "source": "eur-lex.europa.eu", "date": "2026-07-14",
-            "summary": "The new regulation mandates that LMT batteries must be easily replaceable by an independent professional starting February 2027.",
-            "impact": "2 Legal Cards potentially impacted: \n* EU - E-Bikes \n* FR - E-Bikes",
-            "status": "inbox", "priority": "high"
-        },
-        "sig_2": {
-            "title": "[Guidance] ANSES: New restrictions on flame retardants",
-            "market": "France", "source": "anses.fr", "date": "2026-07-20",
-            "summary": "ANSES recommends the ban of 3 new chemical compounds used as flame retardants in rigid plastics of sports equipment.",
-            "impact": "1 Legal Card potentially impacted: \n* FR - Audio Headsets",
-            "status": "inbox", "priority": "high"
-        },
-        "sig_3": {
-            "title": "[In Force] MIIT: Standard for wireless wearable devices updated",
-            "market": "China", "source": "miit.gov.cn", "date": "2026-07-18",
-            "summary": "Minor update regarding the declaration format for Bluetooth transmission power in wearable devices.",
-            "impact": "No structural gap identified. Existing Legal Card (CN - Smartwatches) covers the technical limits.",
-            "status": "inbox", "priority": "medium"
-        }
-    }
+    st.session_state.signals_db = {}
+    
+if "last_kpi_cost" not in st.session_state:
+    st.session_state.last_kpi_cost = 0.0
 
 def update_signal_status(sig_id, new_status):
     """Callback to move a signal between tabs."""
@@ -81,25 +72,36 @@ def main():
     
     with col1:
         # PERIMETER
-        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if not ontology_df.empty else ["Electronics"]
+        if 'perimeter' in ontology_df.columns:
+            all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist())
+        else:
+            all_perimeters = ["Electronics"]
         selected_perimeters = st.multiselect("Perimeter", all_perimeters)
         
     with col2:
         # CATEGORY (Filtered by Perimeter)
-        if selected_perimeters:
+        if selected_perimeters and 'perimeter' in ontology_df.columns:
             filtered_cats = ontology_df[ontology_df['perimeter'].isin(selected_perimeters)]
         else:
             filtered_cats = ontology_df
-        all_categories = sorted(filtered_cats['internal_owner_group'].dropna().unique().tolist()) if not filtered_cats.empty else ["Mobility", "Wearables"]
+            
+        if 'category_label' in filtered_cats.columns:
+            all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist())
+        else:
+            all_categories = ["Mobility", "Wearables"]
         selected_categories = st.multiselect("Category", all_categories)
         
     with col3:
         # SUB-CATEGORY (Filtered by Category)
-        if selected_categories:
-            filtered_subcats = filtered_cats[filtered_cats['internal_owner_group'].isin(selected_categories)]
+        if selected_categories and 'category_label' in filtered_cats.columns:
+            filtered_subcats = filtered_cats[filtered_cats['category_label'].isin(selected_categories)]
         else:
             filtered_subcats = filtered_cats
-        all_subcategories = sorted(filtered_subcats['category_label'].dropna().unique().tolist()) if not filtered_subcats.empty else ["E-Bikes (EPAC)", "Smartwatches"]
+            
+        if 'sub_category_label' in filtered_subcats.columns:
+            all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist())
+        else:
+            all_subcategories = ["E-Bikes (EPAC)", "Smartwatches"]
         selected_subcategories = st.multiselect("Sub-Category", all_subcategories)
 
     with col4:
@@ -111,24 +113,73 @@ def main():
             default=["EU", "France"] if "EU" in available_countries else available_countries[:2]
         )
         
-    if st.button("🚀 Run Scan", type="primary", use_container_width=True):
-        with st.spinner("Agent 1 is scanning global sources..."):
-            time.sleep(1.5)
-        st.session_state.scan_executed = True
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+    tavily_key = st.secrets.get("TAVILY_API_KEY", "")
+    
+    # We require at least a category or subcategory, and a market to scan
+    categories_to_scan = selected_subcategories if selected_subcategories else selected_categories
+    ready_to_scan = bool(categories_to_scan and countries)
+        
+    if st.button("🚀 Run Scan", type="primary", use_container_width=True, disabled=not ready_to_scan):
+        if not (gemini_key and tavily_key):
+            st.error("⚠️ API keys (Gemini & Tavily) missing in your secrets setup.")
+        else:
+            with st.spinner("Agent 1 is scanning global sources..."):
+                try:
+                    # THE REAL ENGINE IN ACTION
+                    live_entries, usage = run_live_watch(
+                        gemini_key=gemini_key,
+                        tavily_key=tavily_key,
+                        categories=categories_to_scan,
+                        markets=countries,
+                        timeframe_label="⚡ Last 30 days"
+                    )
+                    
+                    # Convert AI results to UI database format
+                    new_db = {}
+                    for idx, entry in enumerate(live_entries):
+                        sig_id = f"sig_{datetime.now().strftime('%H%M%S')}_{idx}"
+                        new_db[sig_id] = {
+                            "title": entry.get("title", "Untitled Signal"),
+                            "market": ", ".join(entry.get("markets", countries)),
+                            "source": entry.get("source", "Web Search"),
+                            "date": entry.get("date", datetime.now().strftime("%Y-%m-%d")),
+                            "summary": entry.get("summary", "No summary provided."),
+                            "impact": entry.get("impact_prediction", "Impact assessment required."),
+                            "status": "inbox",
+                            "priority": entry.get("urgency", "low").lower()
+                        }
+                    
+                    if new_db:
+                        # Append new signals to existing ones
+                        st.session_state.signals_db.update(new_db)
+                        st.success(f"Scan complete! Found {len(new_db)} new signals.")
+                        
+                        # Calculate rough cost based on Gemini Flash pricing (approx $0.075 / 1M input + $0.30 / 1M output)
+                        est_cost = (usage['input_tokens'] / 1_000_000 * 0.075) + (usage['output_tokens'] / 1_000_000 * 0.30)
+                        st.session_state.last_kpi_cost = round(est_cost, 4)
+                        
+                    else:
+                        st.info("Scan completed. No new regulatory alerts found for this scope.")
+                        
+                    st.session_state.scan_executed = True
+                    
+                except Exception as e:
+                    st.error(f"Scan failed: {str(e)}")
 
     # ==========================================
     # ZONE 2 : WATCH FEED (RESULTS)
     # ==========================================
-    if st.session_state.scan_executed:
+    if st.session_state.scan_executed or st.session_state.signals_db:
         st.header("📋 2. Watch Feed", divider="blue")
         
         kpi1, kpi2, kpi3 = st.columns(3)
         # Dynamic counting based on state
         inbox_count = sum(1 for s in st.session_state.signals_db.values() if s["status"] == "inbox")
         
-        kpi1.metric("Signals Detected", len(st.session_state.signals_db))
+        kpi1.metric("Total Signals Tracked", len(st.session_state.signals_db))
         kpi2.metric("Unread Alerts", inbox_count)
-        kpi3.metric("Est. AI Cost", "$0.14")
+        kpi3.metric("Est. AI Cost (Last Scan)", f"${st.session_state.last_kpi_cost}")
 
         tab_inbox, tab_bookmark, tab_archive = st.tabs(["📥 Inbox (Unread)", "📌 Bookmarked", "🗄️ Archive"])
 
@@ -136,11 +187,13 @@ def main():
         def render_signal_card(sig_id, data):
             with st.container(border=True):
                 st.markdown(f"#### 📄 {data['title']}")
-                st.caption(f"🌍 **Market:** {data['market']} | 🏛️ **Source:** [{data['source']}](https://{data['source']}) | 📅 **Published:** {data['date']}")
+                st.caption(f"🌍 **Market:** {data['market']} | 🏛️ **Source:** {data['source']} | 📅 **Published:** {data['date']}")
                 st.info(f"**AI Summary:** {data['summary']}")
                 
                 if data['priority'] == 'high':
                     st.warning(f"🔍 {data['impact']}")
+                elif data['priority'] == 'medium':
+                    st.warning(f"⚠️ {data['impact']}")
                 else:
                     st.success(f"✅ {data['impact']}")
                 
