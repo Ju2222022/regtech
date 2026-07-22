@@ -29,10 +29,9 @@ def get_ontology_data():
         return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
 
 def generate_markdown_export(data_dict):
-    """Generates a human-readable Markdown string from the Legal Card dictionary."""
-    md = f"# Legal Card: {data_dict['metadata']['category']} - {data_dict['metadata']['market']}\n\n"
-    md += f"**Perimeter:** {data_dict['metadata']['perimeter']} | **Sub-Category:** {data_dict['metadata']['sub_category']}\n"
-    md += f"**Last Updated:** {data_dict['metadata']['last_updated']}\n\n---\n\n"
+    md = f"# Legal Card: {data_dict['metadata'].get('category', 'Unknown')} - {data_dict['metadata'].get('market', 'Unknown')}\n\n"
+    md += f"**Perimeter:** {data_dict['metadata'].get('perimeter', 'Unknown')} | **Sub-Category:** {data_dict['metadata'].get('sub_category', 'Unknown')}\n"
+    md += f"**Last Updated:** {data_dict['metadata'].get('last_updated', 'Unknown')}\n\n---\n\n"
     
     md += "## 1. Identity & Scope\n"
     md += f"**Legal Definition:**\n{data_dict['identity']['definition']}\n\n"
@@ -40,7 +39,7 @@ def generate_markdown_export(data_dict):
     
     md += "## 2. Technical & Product Requirements\n"
     for req in data_dict['requirements']:
-        if any(req.values()): # Check if row is not totally empty
+        if any(req.values()):
             md += f"* **[{req.get('Type', '')}]** {req.get('Parameter', '')}: {req.get('Limit', '')} *(Ref: {req.get('Reference', '')})*\n"
     
     md += "\n## 3. Marking & Information\n"
@@ -70,22 +69,35 @@ def main():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if 'perimeter' in ontology_df.columns else ["Electronics"]
-        selected_perimeter = st.selectbox("Perimeter", all_perimeters)
+        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if 'perimeter' in ontology_df.columns else []
+        selected_perimeter = st.selectbox("Perimeter", all_perimeters, index=None, placeholder="Select Perimeter...")
         
     with col2:
-        filtered_cats = ontology_df[ontology_df['perimeter'] == selected_perimeter] if 'perimeter' in ontology_df.columns else ontology_df
-        all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if 'category_label' in filtered_cats.columns else ["Audio"]
-        selected_category = st.selectbox("Category", all_categories)
+        # Cascade logic: Only show categories if perimeter is selected
+        if selected_perimeter and 'perimeter' in ontology_df.columns:
+            filtered_cats = ontology_df[ontology_df['perimeter'] == selected_perimeter]
+        else:
+            filtered_cats = pd.DataFrame()
+            
+        all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if 'category_label' in filtered_cats.columns else []
+        selected_category = st.selectbox("Category", all_categories, index=None, placeholder="Select Category...")
         
     with col3:
-        filtered_subcats = filtered_cats[filtered_cats['category_label'] == selected_category] if 'category_label' in filtered_cats.columns else filtered_cats
-        all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if 'sub_category_label' in filtered_subcats.columns else ["Mp3 player"]
-        selected_subcategory = st.selectbox("Sub-Category", all_subcategories)
+        # Cascade logic: Only show sub-categories if category is selected
+        if selected_category and 'category_label' in filtered_cats.columns:
+            filtered_subcats = filtered_cats[filtered_cats['category_label'] == selected_category]
+        else:
+            filtered_subcats = pd.DataFrame()
+            
+        all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if 'sub_category_label' in filtered_subcats.columns else []
+        selected_subcategory = st.selectbox("Sub-Category", all_subcategories, index=None, placeholder="Select Sub-Category...")
 
     with col4:
         available_countries = get_active_countries()
-        selected_market = st.selectbox("Target Market", available_countries)
+        selected_market = st.selectbox("Target Market", available_countries, index=None, placeholder="Select Market...")
+
+    # Check if matrix is complete
+    matrix_is_complete = all([selected_perimeter, selected_category, selected_subcategory, selected_market])
 
     st.divider()
 
@@ -149,10 +161,10 @@ def main():
     # ==========================================
     legal_card_data = {
         "metadata": {
-            "perimeter": selected_perimeter,
-            "category": selected_category,
-            "sub_category": selected_subcategory,
-            "market": selected_market,
+            "perimeter": selected_perimeter or "Unassigned",
+            "category": selected_category or "Unassigned",
+            "sub_category": selected_subcategory or "Unassigned",
+            "market": selected_market or "Unassigned",
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "owner": "Julien Dlubala"
         },
@@ -165,9 +177,7 @@ def main():
         "documents": docs_df_out.to_dict('records')
     }
     
-    # Convert dict to JSON string
     json_string = json.dumps(legal_card_data, indent=4, ensure_ascii=False)
-    # Convert dict to Markdown string
     md_string = generate_markdown_export(legal_card_data)
 
     # ==========================================
@@ -175,13 +185,12 @@ def main():
     # ==========================================
     with side_col:
         st.markdown("### 💾 Storage")
-        if st.button("Save to Internal Database", type="primary", use_container_width=True):
+        
+        if st.button("Save to Internal Database", type="primary", use_container_width=True, disabled=not matrix_is_complete):
             try:
-                # Create data/legal_cards directory if it doesn't exist
                 save_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'legal_cards')
                 os.makedirs(save_dir, exist_ok=True)
                 
-                # Format filename securely
                 safe_cat = str(selected_category).replace(" ", "_").replace("/", "-")
                 safe_market = str(selected_market).replace(" ", "_").replace("/", "-")
                 filename = f"{safe_cat}_{safe_market}.json"
@@ -193,6 +202,9 @@ def main():
                 st.success(f"File saved: `{filename}`")
             except Exception as e:
                 st.error(f"Save failed: {str(e)}")
+                
+        if not matrix_is_complete:
+            st.caption("⚠️ Please select Perimeter, Category, Sub-Category, and Market to enable saving.")
         
         st.divider()
         
@@ -202,7 +214,8 @@ def main():
             data=json_string,
             file_name=f"LegalCard_{str(selected_category).replace(' ','_')}_{str(selected_market).replace(' ','_')}.json",
             mime="application/json",
-            use_container_width=True
+            use_container_width=True,
+            disabled=not matrix_is_complete
         )
         
         st.download_button(
@@ -210,7 +223,8 @@ def main():
             data=md_string,
             file_name=f"LegalCard_{str(selected_category).replace(' ','_')}_{str(selected_market).replace(' ','_')}.md",
             mime="text/markdown",
-            use_container_width=True
+            use_container_width=True,
+            disabled=not matrix_is_complete
         )
         
         st.divider()
