@@ -6,10 +6,13 @@ from datetime import datetime
 try:
     from core.agents.watcher import run_live_watch
 except ImportError:
-    st.error("Impossible de trouver `watcher.py`.")
+    st.error("Impossible de trouver `watcher.py`. Assure-toi qu'il est bien dans `core/agents/`.")
 
 st.set_page_config(page_title="Watch Tower | RegWatch", page_icon="📡", layout="wide")
 
+# ==========================================
+# DATA LOADING & INITIALIZATION
+# ==========================================
 @st.cache_data
 def get_active_countries():
     try:
@@ -17,9 +20,9 @@ def get_active_countries():
         df = pd.read_csv(csv_path)
         if 'Geographic Zone' in df.columns:
             return sorted(df['Geographic Zone'].dropna().unique().tolist())
-        return ["EU", "France", "USA", "China"]
     except Exception:
-        return ["EU", "France", "USA", "China"]
+        pass
+    return ["EU", "France", "USA", "China"]
 
 @st.cache_data
 def get_ontology_data():
@@ -27,7 +30,7 @@ def get_ontology_data():
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
         return pd.read_csv(csv_path)
     except Exception:
-        return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
+        return pd.DataFrame()
 
 if 'signals_db' not in st.session_state:
     st.session_state.signals_db = {}
@@ -41,66 +44,87 @@ def main():
     ontology_df = get_ontology_data()
     available_countries = get_active_countries()
 
+    # ==========================================
+    # ZONE 1 : RADAR CONFIGURATION
+    # ==========================================
     st.markdown("### 🎯 Radar Configuration")
     
-    col1, col2, col3 = st.columns([2, 2, 1])
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        all_categories = sorted(ontology_df['category_label'].dropna().unique().tolist()) if 'category_label' in ontology_df.columns else ["Audio", "Wearables"]
-        selected_categories = st.multiselect("Select Categories to monitor", all_categories, default=all_categories[:1] if all_categories else None)
+        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if not ontology_df.empty and 'perimeter' in ontology_df.columns else []
+        selected_perimeter = st.selectbox("Perimeter", all_perimeters, index=None, placeholder="Select Perimeter...")
         
     with col2:
-        countries = st.multiselect("Target Markets", available_countries, default=["EU", "France"] if "EU" in available_countries else None)
+        filtered_cats = ontology_df[ontology_df['perimeter'] == selected_perimeter] if selected_perimeter else pd.DataFrame()
+        all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if not filtered_cats.empty else []
+        selected_category = st.selectbox("Category", all_categories, index=None, placeholder="Select Category...")
         
     with col3:
-        # Check des clés Gemini et Tavily
-        gemini_key = st.secrets.get("GEMINI_API_KEY", "")
-        tavily_key = st.secrets.get("TAVILY_API_KEY", "")
-        
-        ready_to_scan = bool(selected_categories and countries and gemini_key and tavily_key)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🚀 Run Scan", type="primary", use_container_width=True, disabled=not ready_to_scan):
-            with st.spinner("Gemini & Tavily are scanning global sources..."):
-                try:
-                    live_entries, usage = run_live_watch(
-                        gemini_key=gemini_key,
-                        tavily_key=tavily_key,
-                        categories=selected_categories,
-                        markets=countries,
-                        timeframe_label="⚡ Last 30 days"
-                    )
-                    
-                    new_db = {}
-                    for idx, entry in enumerate(live_entries):
-                        sig_id = f"sig_{datetime.now().strftime('%H%M%S')}_{idx}"
-                        new_db[sig_id] = {
-                            "title": entry.get("title", "Untitled Signal"),
-                            "market": ", ".join(entry.get("markets", countries)),
-                            "source": entry.get("source", "Web"),
-                            "date": entry.get("date", datetime.now().strftime("%Y-%m-%d")),
-                            "summary": entry.get("summary", "No summary provided."),
-                            "impact": entry.get("impact_prediction", "Pending review."),
-                            "status": "inbox",
-                            "priority": entry.get("urgency", "LOW").lower()
-                        }
-                    
-                    if new_db:
-                        st.session_state.signals_db = new_db
-                        st.session_state.scan_executed = True
-                        st.success(f"Scan complete! Found {len(new_db)} signals. (Tokens used: {usage['input_tokens']} in / {usage['output_tokens']} out)")
-                    else:
-                        st.session_state.scan_executed = True
-                        st.info("Scan completed, but no relevant regulatory signals were identified.")
-                        
-                except Exception as e:
-                    st.error(f"Scan failed: {str(e)}")
-                    
+        filtered_subcats = filtered_cats[filtered_cats['category_label'] == selected_category] if selected_category else pd.DataFrame()
+        all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if not filtered_subcats.empty else []
+        selected_subcategory = st.selectbox("Sub-Category", all_subcategories, index=None, placeholder="Select Sub-Category...")
+
+    with col4:
+        selected_market = st.selectbox("Target Market", available_countries, index=None, placeholder="Select Market...")
+
+    # Vérification que la matrice est complète
+    matrix_is_complete = all([selected_perimeter, selected_category, selected_subcategory, selected_market])
+
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+    tavily_key = st.secrets.get("TAVILY_API_KEY", "")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("🚀 Run Scan", type="primary", use_container_width=True, disabled=not matrix_is_complete):
         if not (gemini_key and tavily_key):
-            st.caption("⚠️ API keys missing in your secrets setup.")
+            st.error("⚠️ API keys missing in your secrets setup.")
+            return
+
+        # On affiche clairement ce que l'Agent cherche
+        with st.spinner(f"Gemini & Tavily are scanning for '{selected_subcategory}' in '{selected_market}'..."):
+            try:
+                # On envoie la sous-catégorie exacte pour que le Watcher lise la bonne définition métier !
+                live_entries, usage = run_live_watch(
+                    gemini_key=gemini_key,
+                    tavily_key=tavily_key,
+                    categories=[selected_subcategory],
+                    markets=[selected_market],
+                    timeframe_label="⚡ Last 30 days"
+                )
+                
+                new_db = {}
+                for idx, entry in enumerate(live_entries):
+                    sig_id = f"sig_{datetime.now().strftime('%H%M%S')}_{idx}"
+                    new_db[sig_id] = {
+                        "title": entry.get("title", "Untitled Signal"),
+                        "market": selected_market,
+                        "source": entry.get("source", "Web"),
+                        "date": entry.get("date", datetime.now().strftime("%Y-%m-%d")),
+                        "summary": entry.get("summary", "No summary provided."),
+                        "impact": entry.get("impact_prediction", "Pending review."),
+                        "status": "inbox",
+                        "priority": entry.get("urgency", "LOW").lower()
+                    }
+                
+                st.session_state.scan_executed = True
+                
+                if new_db:
+                    # On ajoute les nouveaux résultats sans effacer les anciens qui sont dans l'inbox
+                    st.session_state.signals_db.update(new_db)
+                    st.success(f"Scan complete! Found {len(new_db)} signals. (Tokens used: {usage['input_tokens']} in / {usage['output_tokens']} out)")
+                else:
+                    # Message clair si rien n'est trouvé
+                    st.warning(f"Scan completed. Tavily searched the web, but Gemini determined there were no NEW regulatory updates for '{selected_subcategory}' in the last 30 days.")
+                    
+            except Exception as e:
+                st.error(f"Scan failed: {str(e)}")
 
     st.divider()
 
+    # ==========================================
+    # ZONE 2 : INBOX & TRIAGE
+    # ==========================================
     st.markdown("### 📥 Signal Inbox")
     
     if not st.session_state.scan_executed and not st.session_state.signals_db:
