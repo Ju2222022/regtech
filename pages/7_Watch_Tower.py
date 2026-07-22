@@ -1,21 +1,15 @@
 import streamlit as st
 import pandas as pd
 import os
-import json
 from datetime import datetime
 
-# Import du vrai moteur de veille (Agent 1)
-# Assure-toi que le chemin d'import correspond bien à ton arborescence
 try:
     from core.agents.watcher import run_live_watch
 except ImportError:
-    st.error("Impossible de trouver `watcher.py`. Assure-toi qu'il est bien dans le dossier `core/agents/`.")
+    st.error("Impossible de trouver `watcher.py`.")
 
 st.set_page_config(page_title="Watch Tower | RegWatch", page_icon="📡", layout="wide")
 
-# ==========================================
-# DATA LOADING & INITIALIZATION
-# ==========================================
 @st.cache_data
 def get_active_countries():
     try:
@@ -42,14 +36,11 @@ if 'scan_executed' not in st.session_state:
 
 def main():
     st.title("📡 Regulatory Watch Tower")
-    st.markdown("Monitor global sources and identify regulatory gaps for your product portfolio.")
+    st.markdown("Monitor global sources and identify regulatory gaps using Gemini AI.")
 
     ontology_df = get_ontology_data()
     available_countries = get_active_countries()
 
-    # ==========================================
-    # ZONE 1 : RADAR CONFIGURATION
-    # ==========================================
     st.markdown("### 🎯 Radar Configuration")
     
     col1, col2, col3 = st.columns([2, 2, 1])
@@ -62,26 +53,24 @@ def main():
         countries = st.multiselect("Target Markets", available_countries, default=["EU", "France"] if "EU" in available_countries else None)
         
     with col3:
-        # Clés API requises
-        anthropic_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+        # Check des clés Gemini et Tavily
+        gemini_key = st.secrets.get("GEMINI_API_KEY", "")
         tavily_key = st.secrets.get("TAVILY_API_KEY", "")
         
-        ready_to_scan = bool(selected_categories and countries and anthropic_key and tavily_key)
+        ready_to_scan = bool(selected_categories and countries and gemini_key and tavily_key)
         
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🚀 Run Scan", type="primary", use_container_width=True, disabled=not ready_to_scan):
-            with st.spinner("Agent 1 is scanning global sources..."):
+            with st.spinner("Gemini & Tavily are scanning global sources..."):
                 try:
-                    # Appel du moteur IA
                     live_entries, usage = run_live_watch(
-                        anthropic_key=anthropic_key,
+                        gemini_key=gemini_key,
                         tavily_key=tavily_key,
                         categories=selected_categories,
                         markets=countries,
                         timeframe_label="⚡ Last 30 days"
                     )
                     
-                    # Transformation des résultats pour l'interface
                     new_db = {}
                     for idx, entry in enumerate(live_entries):
                         sig_id = f"sig_{datetime.now().strftime('%H%M%S')}_{idx}"
@@ -99,7 +88,7 @@ def main():
                     if new_db:
                         st.session_state.signals_db = new_db
                         st.session_state.scan_executed = True
-                        st.success(f"Scan complete! Found {len(new_db)} signals. Estimated AI cost: ${usage.get('cost_usd', 0):.4f}")
+                        st.success(f"Scan complete! Found {len(new_db)} signals. (Tokens used: {usage['input_tokens']} in / {usage['output_tokens']} out)")
                     else:
                         st.session_state.scan_executed = True
                         st.info("Scan completed, but no relevant regulatory signals were identified.")
@@ -107,14 +96,11 @@ def main():
                 except Exception as e:
                     st.error(f"Scan failed: {str(e)}")
                     
-        if not (anthropic_key and tavily_key):
-            st.caption("⚠️ API keys missing in secrets.toml")
+        if not (gemini_key and tavily_key):
+            st.caption("⚠️ API keys missing in your secrets setup.")
 
     st.divider()
 
-    # ==========================================
-    # ZONE 2 : INBOX & TRIAGE
-    # ==========================================
     st.markdown("### 📥 Signal Inbox")
     
     if not st.session_state.scan_executed and not st.session_state.signals_db:
