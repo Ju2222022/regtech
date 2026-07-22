@@ -5,93 +5,108 @@ from datetime import datetime
 import os
 import pandas as pd
 
-def get_dynamic_sources(markets: list) -> list:
-    """
-    Lit dynamiquement les sources depuis regulatory_pool.csv 
-    pour les marchés sélectionnés.
-    """
-    try:
-        # Chemin relatif vers le CSV
-        csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'regulatory_pool.csv')
-        df = pd.read_csv(csv_path)
-        
-        # Filtrer sur les marchés demandés
-        if 'Geographic Zone' in df.columns:
-            df = df[df['Geographic Zone'].isin(markets)]
-            
-        # Chercher la colonne contenant les URLs/Domaines (adapte le nom exact selon ton CSV)
-        domain_col = None
-        for col in ['Domain', 'Source', 'URL', 'Website', 'Lien']:
-            if col in df.columns:
-                domain_col = col
-                break
-                
-        if domain_col:
-            # Nettoyer les URLs pour ne garder que le domaine (ex: https://www.anses.fr/ -> anses.fr)
-            raw_urls = df[domain_col].dropna().unique().tolist()
-            clean_domains = [url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0] for url in raw_urls]
-            return list(set(clean_domains))
-            
-    except Exception as e:
-        print(f"Erreur lors de la lecture du pool de sources : {e}")
-        
-    # Fallback minimal de sécurité si le CSV plante
-    return ["eur-lex.europa.eu", "legifrance.gouv.fr"]
-
-# ── Language groups & Default Sources ──────────────────────────────────────────
-MARKET_LANGUAGE_GROUP = {
-    "EU":          "en",
-    "UK":          "en",
-    "USA":         "en",
-    "Canada":      "en",
-    "France":      "fr",
-    "Belgium":     "fr",
-    "China":       "zh",
-    "Spain":       "es",
-    "Germany":     "de",
-}
-
-LANGUAGE_LABELS = {
-    "en": "English",
-    "fr": "French",
-    "zh": "Mandarin Chinese",
-    "es": "Spanish",
-    "de": "German",
-}
-
+# ── Configuration & Cost ───────────────────────────────────────────────────────
 TIMEFRAMES = {
     "⚡ Last 7 days":    {"time_range": "week"},
     "⚡ Last 30 days":   {"time_range": "month"},
     "📅 Last 12 months": {"time_range": "year"},
 }
 
-# Costs for Claude Haiku
 HAIKU_INPUT_COST  = 0.80
 HAIKU_OUTPUT_COST = 4.00
 
-SYSTEM_EXTRACT = """You are Agent 1, a regulatory intelligence extractor for product compliance.
+# ── Dynamic Data Loaders (Ontology & Pool) ─────────────────────────────────────
+def get_dynamic_sources(markets: list) -> list:
+    """Extracts target domains from regulatory_pool.csv based on selected markets."""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'regulatory_pool.csv')
+        df = pd.read_csv(csv_path)
+        
+        if 'Geographic Zone' in df.columns:
+            df = df[df['Geographic Zone'].isin(markets)]
+            
+        domain_col = None
+        for col in ['URL / Endpoint', 'Domain', 'Source', 'URL', 'Website', 'Lien']:
+            if col in df.columns:
+                domain_col = col
+                break
+                
+        if domain_col:
+            raw_urls = df[domain_col].dropna().unique().tolist()
+            # Clean URLs to extract pure domains
+            clean_domains = [url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0] for url in raw_urls]
+            return list(set(clean_domains))
+            
+    except Exception as e:
+        print(f"Error reading regulatory pool sources: {e}")
+        
+    # Safe fallback
+    return ["eur-lex.europa.eu", "legifrance.gouv.fr"]
+
+def get_market_language(market: str) -> str:
+    """Extracts target language from regulatory_pool.csv based on the market."""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'regulatory_pool.csv')
+        df = pd.read_csv(csv_path)
+        market_data = df[df['Geographic Zone'] == market]
+        
+        if not market_data.empty and 'Query Language' in df.columns:
+            lang = market_data['Query Language'].iloc[0]
+            if pd.notna(lang) and str(lang).upper() != "MULTI":
+                return str(lang).lower()
+    except Exception as e:
+        print(f"Error reading market language: {e}")
+        
+    return "en" # Fallback to English
+
+def get_category_context(category_name: str) -> str:
+    """Extracts the strict business definition from default_ontology.csv to guide the AI."""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'default_ontology.csv')
+        df = pd.read_csv(csv_path)
+        
+        # Check sub-categories first, then categories
+        match = df[df['sub_category_label'] == category_name]
+        if match.empty:
+            match = df[df['category_label'] == category_name]
+            
+        if not match.empty and 'business_definition' in df.columns:
+            definition = match['business_definition'].iloc[0]
+            if pd.notna(definition):
+                return str(definition)
+    except Exception as e:
+        print(f"Error reading ontology context: {e}")
+        
+    return "No specific business definition provided. Focus on general product compliance and safety."
+
+def get_system_prompt(business_definition: str) -> str:
+    """Generates a dynamic system prompt tailored to the product's exact definition."""
+    return f"""You are Agent 1, a regulatory intelligence extractor for product compliance.
 
 You receive web search results and must extract structured regulatory entries.
 Always output in English, regardless of the source language.
 
+IMPORTANT CONTEXT ABOUT THE PRODUCT CATEGORY:
+{business_definition}
+
 OUTPUT — respond ONLY with a valid JSON array, no markdown:
 [
-  {
+  {{
     "title": "Short title in English",
     "source": "source domain",
     "date": "YYYY-MM-DD or estimated",
     "summary": "AI summary in English (2-3 sentences max)",
-    "impact_prediction": "Description of potential gap / impact on products",
+    "impact_prediction": "Description of potential gap / impact on products based on the context provided",
     "markets": ["EU", "France"],
     "source_language": "en|fr|zh|es|de",
     "urgency": "HIGH|MEDIUM|LOW",
     "action_required": "Concrete action or 'Monitor only'",
     "url": "source URL"
-  }
+  }}
 ]
 
 Rules:
-- Translate all content to English in the output array.
+- Translate all extracted content to English.
 - Only include genuine regulatory content (directives, standards, laws, enforcement notices).
 - Skip generic news unless they announce a specific regulatory change.
 - urgency HIGH = deadline < 6 months or already in force.
@@ -106,14 +121,13 @@ def translate_topic(anthropic_key: str, topic: str, target_lang: str) -> str:
     if target_lang == "en":
         return topic
 
-    lang_label = LANGUAGE_LABELS.get(target_lang, target_lang)
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 200,
         "system": "Translate the given regulatory topic into the target language. Return ONLY the translated query string.",
         "messages": [{
             "role": "user",
-            "content": f"Translate this regulatory watch topic into {lang_label}:\n\n{topic}"
+            "content": f"Translate this regulatory watch topic into the language corresponding to ISO code '{target_lang}':\n\n{topic}"
         }]
     }).encode("utf-8")
 
@@ -136,7 +150,7 @@ def translate_topic(anthropic_key: str, topic: str, target_lang: str) -> str:
 
 # ── Tavily Search ──────────────────────────────────────────────────────────────
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
-    """Search web using Tavily Search API."""
+    """Search web using Tavily Search API with domain filtering."""
     def _call(payload_dict: dict) -> list:
         req = urllib.request.Request(
             "https://api.tavily.com/search",
@@ -221,7 +235,7 @@ def extract_regulatory_entries(
     topic_en: str,
     search_results: list,
     markets: list,
-    source_lang: str = "en",
+    system_prompt: str
 ) -> tuple:
     if not search_results:
         return [], {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
@@ -245,7 +259,7 @@ def extract_regulatory_entries(
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 2048,
-        "system": SYSTEM_EXTRACT,
+        "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}]
     }).encode("utf-8")
 
@@ -309,30 +323,54 @@ def run_live_watch(
     use_jina: bool = True
 ) -> tuple:
     """
-    Executes a real-time regulatory watch session based on user selection.
+    Executes a real-time regulatory watch session fully driven by the ontology and regulatory pool.
     """
-    topic_query = " ".join(categories) + " regulatory requirements safety updates"
     timeframe_cfg = TIMEFRAMES.get(timeframe_label, {"time_range": "month"})
+    base_topic = " ".join(categories) + " regulatory requirements safety updates"
+    
+    # 1. Fetch exact business definition to guide AI extraction
+    main_category = categories[0] if categories else ""
+    business_context = get_category_context(main_category)
+    system_prompt = get_system_prompt(business_context)
 
-    # Collect domains for selected markets
-    domains = []
-    for m in markets:
-        domains.extend(DEFAULT_SOURCES.get(m, []))
-    domains = list(set(domains))
+    all_raw_results = []
+    total_usage = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
 
-    # 1. Tavily Search
-    raw_results = search_tavily(tavily_key, topic_query, domains, timeframe_cfg)
+    # 2. Iterate dynamically over requested markets
+    for market in markets:
+        # Fetch specific language and domains for this market
+        market_lang = get_market_language(market)
+        market_domains = get_dynamic_sources([market])
+        
+        # Translate topic to target language if not English
+        target_topic = translate_topic(anthropic_key, base_topic, market_lang) if market_lang != "en" else base_topic
+        
+        # Tavily Search
+        market_results = search_tavily(tavily_key, target_topic, market_domains, timeframe_cfg)
+        all_raw_results.extend(market_results)
+        
+    # Deduplicate raw search URLs to avoid redundant Jina calls
+    unique_urls = set()
+    filtered_results = []
+    for r in all_raw_results:
+        if r['url'] not in unique_urls:
+            unique_urls.add(r['url'])
+            filtered_results.append(r)
 
-    # 2. Optional Jina Enrichment
-    if use_jina and raw_results:
-        raw_results = enrich_with_jina(raw_results, max_enrich=2)
+    # 3. Optional Jina Enrichment
+    if use_jina and filtered_results:
+        filtered_results = enrich_with_jina(filtered_results, max_enrich=3)
 
-    # 3. Claude Extraction
+    # 4. Claude Extraction
     extracted_entries, usage = extract_regulatory_entries(
-        anthropic_key, topic_query, raw_results, markets
+        anthropic_key, base_topic, filtered_results, markets, system_prompt
     )
+    
+    total_usage["input_tokens"] += usage["input_tokens"]
+    total_usage["output_tokens"] += usage["output_tokens"]
+    total_usage["cost_usd"] += usage["cost_usd"]
 
-    # 4. Deduplication
+    # 5. Final Deduplication
     unique_entries = deduplicate_entries(extracted_entries)
 
-    return unique_entries, usage
+    return unique_entries, total_usage
