@@ -1,25 +1,68 @@
 import streamlit as st
 import pandas as pd
+import os
 
 st.set_page_config(page_title="Legal Card Editor | RegWatch", page_icon="📝", layout="wide")
+
+# ==========================================
+# DATA LOADING
+# ==========================================
+@st.cache_data
+def get_active_countries():
+    """Extract unique countries dynamically from the Regulatory Pool."""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
+        df = pd.read_csv(csv_path)
+        if 'Geographic Zone' in df.columns:
+            return sorted(df['Geographic Zone'].dropna().unique().tolist())
+        return ["EU", "France", "USA", "China"]
+    except Exception:
+        return ["EU", "France", "USA", "China"]
+
+@st.cache_data
+def get_ontology_data():
+    """Extract full hierarchical data from the Default Ontology."""
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
+        df = pd.read_csv(csv_path)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
 
 def main():
     st.title("📝 Legal Card Editor")
     st.markdown("Manage your single source of truth for product compliance.")
 
     # ==========================================
-    # HEADER : MATRIX SELECTION
+    # HEADER : DYNAMIC MATRIX SELECTION
     # ==========================================
     st.markdown("### 🎯 Card Selection")
+    
+    ontology_df = get_ontology_data()
+    
     col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.selectbox("Perimeter", ["Electronics & Measuring devices", "Mobility", "Apparel & Textile", "Heavy Equipment"])
+        # PERIMETER
+        all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if 'perimeter' in ontology_df.columns else ["Electronics"]
+        selected_perimeter = st.selectbox("Perimeter", all_perimeters)
+        
     with col2:
-        st.selectbox("Category", ["Audio", "Wearables", "E-Bikes", "Footwear"])
+        # CATEGORY (Filtered by Perimeter)
+        filtered_cats = ontology_df[ontology_df['perimeter'] == selected_perimeter] if 'perimeter' in ontology_df.columns else ontology_df
+        all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if 'category_label' in filtered_cats.columns else ["Audio"]
+        selected_category = st.selectbox("Category", all_categories)
+        
     with col3:
-        st.selectbox("Sub-Category", ["Mp3 player", "Smartwatches", "Audio Headsets", "Running Shoes"])
+        # SUB-CATEGORY (Filtered by Category)
+        filtered_subcats = filtered_cats[filtered_cats['category_label'] == selected_category] if 'category_label' in filtered_cats.columns else filtered_cats
+        all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if 'sub_category_label' in filtered_subcats.columns else ["Mp3 player"]
+        selected_subcategory = st.selectbox("Sub-Category", all_subcategories)
+
     with col4:
-        st.selectbox("Target Market", ["EU", "France", "USA", "China"])
+        # TARGET MARKET (From Regulatory Pool)
+        available_countries = get_active_countries()
+        selected_market = st.selectbox("Target Market", available_countries)
 
     st.divider()
 
@@ -32,20 +75,18 @@ def main():
         # --- SECTION 1: IDENTITY ---
         st.subheader("1. Identity & Scope")
         st.text_area("Product Legal Definition", 
-                     "\"Electrical and electronic equipment\" means equipment which is dependent on electric currents or electromagnetic fields in order to work properly...", 
+                     "Enter the official legal definition for this product category...", 
                      height=80)
-        st.text_input("Covered HS Codes (Customs)", "8527.13.00, 8519.81.00")
+        st.text_input("Covered HS Codes (Customs)", "Ex: 8527.13.00, 8519.81.00")
         
-        st.markdown("<br>", unsafe_allow_html=True) # Spacer
+        st.markdown("<br>", unsafe_allow_html=True)
 
         # --- SECTION 2: PRODUCT REQUIREMENTS (GENERIC TABLE) ---
         st.subheader("2. Technical & Product Requirements")
         st.markdown("Add all physical, chemical, or technical limits your product must respect.")
         
         req_df = pd.DataFrame([
-            {"Type": "Chemical", "Parameter": "Lead (Pb)", "Limit": "Max 0.1% by weight", "Reference": "RoHS Directive"},
-            {"Type": "Radio", "Parameter": "Transmission Power", "Limit": "Max 20mW", "Reference": "RED 2014/53/EU"},
-            {"Type": "Safety", "Parameter": "Output Voltage", "Limit": "≤ 150 mV", "Reference": "EN 60065"}
+            {"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": ""}
         ])
         
         st.data_editor(
@@ -73,10 +114,7 @@ def main():
         st.markdown("List all logos, warnings, and digital information required.")
         
         marking_df = pd.DataFrame([
-            {"Placement": "On Product", "Requirement": "CE Marking", "Description": "Min 5mm height, visible and indelible.", "Mandatory": True},
-            {"Placement": "On Packaging", "Requirement": "Triman Logo", "Description": "Info-tri mandatory for French market.", "Mandatory": True},
-            {"Placement": "In Manual", "Requirement": "SAR Value", "Description": "Required if transmitting power > 20 mW.", "Mandatory": True},
-            {"Placement": "E-commerce (Web)", "Requirement": "Recyclability Score", "Description": "Available digitally for 2 years (AGEC law).", "Mandatory": True}
+            {"Placement": "On Product", "Requirement": "", "Description": "", "Mandatory": True}
         ])
         
         st.data_editor(
@@ -101,8 +139,7 @@ def main():
         # --- SECTION 4: MARKET ACCESS & DOCS ---
         st.subheader("4. Conformity Documents & Access")
         docs_df = pd.DataFrame([
-            {"Document": "EU Declaration of Conformity", "Description": "Must be kept for 10 years, translated in all retail languages.", "Retention": "10 Years"},
-            {"Document": "EMC Test Report", "Description": "From accredited laboratory (ISO 17025).", "Retention": "10 Years"}
+            {"Document": "", "Description": "", "Retention": ""}
         ])
         
         st.data_editor(
@@ -117,9 +154,7 @@ def main():
         # --- HISTORY EXPANDER (Bottom) ---
         with st.expander("🕒 History", expanded=False):
             st.markdown("""
-            * **2026-07-20** - Julien Dlubala - *Validated current version.*
-            * **2025-11-14** - Manon Leplat - *Added Triman logo requirement for FR market packaging.*
-            * **2025-02-01** - Julien Dlubala - *Initial card creation.*
+            * **2026-07-22** - Julien Dlubala - *Initial card creation.*
             """)
 
     # ==========================================
@@ -127,18 +162,12 @@ def main():
     # ==========================================
     with side_col:
         st.button("💾 Save Legal Card", type="primary", use_container_width=True)
-        st.caption("Last saved: Just now")
+        st.caption("Status: Draft")
         
         st.divider()
         
         st.markdown("### 📡 Watch Tower Alerts")
-        
-        # Simulated Gap Alert
-        with st.container(border=True):
-            st.warning("⚠️ **Potential Gap Detected**")
-            st.caption("Detected: Today")
-            st.markdown("**[Draft] EU Battery Regulation** might impact your chemical limits (Substances).")
-            st.button("🔍 Review Signal", use_container_width=True)
+        st.info("✅ No active alerts for this specific Legal Card.")
 
 if __name__ == "__main__":
     main()
