@@ -65,7 +65,7 @@ def get_ontology_context(category_name: str) -> dict:
 
 # ── Gemini API Calls (AVEC GESTION D'ERREUR STRICTE) ───────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
-   url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
@@ -91,7 +91,6 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
         }
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8')
-        # On lève l'erreur pour la voir dans Streamlit !
         raise Exception(f"Gemini API refusée (Code {e.code}): {error_body}")
     except Exception as e:
         raise Exception(f"Erreur de connexion à Gemini: {e}")
