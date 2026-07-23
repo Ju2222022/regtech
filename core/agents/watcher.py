@@ -14,7 +14,7 @@ TIMEFRAMES = {
 
 # ── Dynamic Data Loaders (Ontology & Pool) ─────────────────────────────────────
 def get_market_sources(markets: list) -> list:
-    """Reads regulatory_pool.csv and returns sources with their Acquisition Type (Web vs API)."""
+    """Reads regulatory_pool.csv and extracts domains, forcing Web search temporarily."""
     sources = []
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'regulatory_pool.csv')
@@ -24,11 +24,13 @@ def get_market_sources(markets: list) -> list:
             df = df[df['Geographic Zone'].isin(markets)]
             
         for _, row in df.iterrows():
-            acq_type = str(row.get('Acquisition Type', 'Web')).strip()
+            # RUSTINE: On force le type Web pour que Tavily fouille EUR-Lex, CPSC, etc.
+            acq_type = 'Web' 
             url_col = row.get('URL / Endpoint', row.get('URL', ''))
             
             if pd.notna(url_col) and str(url_col).strip():
                 url = str(url_col).strip()
+                # On nettoie l'URL pour ne garder que le domaine racine (ex: eur-lex.europa.eu)
                 domain = url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
                 sources.append({
                     "type": acq_type,
@@ -41,7 +43,6 @@ def get_market_sources(markets: list) -> list:
     return sources
 
 def get_market_language(market: str) -> str:
-    """Extracts target language from regulatory_pool.csv."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'regulatory_pool.csv')
         df = pd.read_csv(csv_path)
@@ -55,57 +56,95 @@ def get_market_language(market: str) -> str:
     return "en"
 
 def get_ontology_context(category_name: str) -> dict:
-    """Extracts business definitions, strict attributes, and keywords from the ontology."""
     context = {
         "definition": "No specific business definition provided.",
         "strict_attributes": "None specified.",
         "keywords": category_name
     }
-    
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'default_ontology.csv')
         df = pd.read_csv(csv_path)
         
-        # Match sub-category or category
         match = df[df['sub_category_label'] == category_name]
         if match.empty:
             match = df[df['category_label'] == category_name]
             
         if not match.empty:
-            # 1. Business Definition
             if 'business_definition' in df.columns and pd.notna(match['business_definition'].iloc[0]):
                 context["definition"] = str(match['business_definition'].iloc[0])
-                
-            # 2. Strict Attributes
             if 'strict_attributes' in df.columns and pd.notna(match['strict_attributes'].iloc[0]):
                 context["strict_attributes"] = str(match['strict_attributes'].iloc[0])
-                
-            # 3. Keywords (for search engine optimization)
             if 'keywords' in df.columns and pd.notna(match['keywords'].iloc[0]):
                 raw_keywords = str(match['keywords'].iloc[0])
-                # Format pipe-separated keywords into a clean search string
                 clean_keywords = raw_keywords.replace('|', ' ').strip()
                 if clean_keywords:
                     context["keywords"] = clean_keywords
-                    
     except Exception as e:
         print(f"Error reading ontology context: {e}")
-        
     return context
 
-def get_system_prompt(business_definition: str, strict_attributes: str) -> str:
-    """Builds the strict Gemini extraction prompt using the full ontology context."""
-    return f"""You are Agent 1, a highly precise regulatory intelligence extractor for product compliance.
+# ── Gemini API Calls ───────────────────────────────────────────────────────────
+def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": {"temperature": 0.1}
+    }
+    if force_json:
+        payload["generationConfig"]["responseMimeType"] = "application/json"
 
-You receive web search results and must extract structured regulatory entries.
-Always output in English, regardless of the source language.
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            data = json.loads(resp.read())
+        text_response = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = data.get("usageMetadata", {})
+        return {
+            "text": text_response,
+            "input_tokens": usage.get("promptTokenCount", 0),
+            "output_tokens": usage.get("candidatesTokenCount", 0)
+        }
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return {"text": "[]" if force_json else "", "input_tokens": 0, "output_tokens": 0}
 
---- PRODUCT ONTOLOGY CONTEXT ---
-BUSINESS DEFINITION:
+def generate_smart_query(gemini_key: str, business_definition: str, fallback_category: str) -> str:
+    """Utilise Gemini pour transformer la longue définition en une recherche percutante."""
+    if not business_definition or business_definition == "No specific business definition provided.":
+        return fallback_category
+
+    system_prompt = "You are an expert in regulatory intelligence and SEO."
+    user_prompt = f"""Read this product definition:
 {business_definition}
 
-STRICT ATTRIBUTES TO MONITOR:
-{strict_attributes}
+Generate a single, highly effective search engine query (maximum 6 words) to find recent regulatory updates, safety standards, or compliance laws for this product.
+Return ONLY the search query string, without quotes or punctuation."""
+
+    result = call_gemini(gemini_key, system_prompt, user_prompt)
+    smart_query = result["text"].strip()
+    return smart_query if smart_query else fallback_category
+
+def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
+    if target_lang == "en": return topic
+    system = "Translate the given search query into the target language. Return ONLY the translated string."
+    user = f"Translate into ISO code '{target_lang}':\n\n{topic}"
+    result = call_gemini(gemini_key, system, user)
+    return result["text"].strip() if result["text"] else topic
+
+def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, markets: list, business_definition: str, strict_attributes: str) -> tuple:
+    if not search_results:
+        return [], {"input_tokens": 0, "output_tokens": 0}
+
+    system_prompt = f"""You are Agent 1, a regulatory intelligence extractor for product compliance.
+Always output in English.
+
+--- PRODUCT ONTOLOGY CONTEXT ---
+BUSINESS DEFINITION: {business_definition}
+STRICT ATTRIBUTES TO MONITOR: {strict_attributes}
 --------------------------------
 
 OUTPUT SCHEMA REQUIRED (JSON Array):
@@ -127,76 +166,17 @@ OUTPUT SCHEMA REQUIRED (JSON Array):
 Rules:
 - Translate all extracted content to English.
 - Only include genuine regulatory content (directives, standards, laws, enforcement notices).
-- If the search results do not explicitly affect the Product Ontology Context provided, ignore them.
 - urgency HIGH = deadline < 6 months or already in force.
 - urgency MEDIUM = deadline 6-18 months.
 - urgency LOW = consultation or > 18 months.
 - If nothing relevant is found, return an empty array [].
 """
 
-# ── Gemini API Calls ───────────────────────────────────────────────────────────
-def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-    
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {"temperature": 0.1} # Low temp for factual extraction
-    }
-    
-    if force_json:
-        payload["generationConfig"]["responseMimeType"] = "application/json"
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-    
-    try:
-        with urllib.request.urlopen(req, timeout=40) as resp:
-            data = json.loads(resp.read())
-            
-        text_response = data["candidates"][0]["content"]["parts"][0]["text"]
-        usage = data.get("usageMetadata", {})
-        
-        return {
-            "text": text_response,
-            "input_tokens": usage.get("promptTokenCount", 0),
-            "output_tokens": usage.get("candidatesTokenCount", 0)
-        }
-    except Exception as e:
-        print(f"Gemini API Error: {e}")
-        return {"text": "[]" if force_json else "", "input_tokens": 0, "output_tokens": 0}
-
-def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
-    if target_lang == "en":
-        return topic
-    system = "Translate the given search query into the target language. Return ONLY the translated string."
-    user = f"Translate into ISO code '{target_lang}':\n\n{topic}"
-    result = call_gemini(gemini_key, system, user)
-    return result["text"].strip() if result["text"] else topic
-
-def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, markets: list, system_prompt: str) -> tuple:
-    if not search_results:
-        return [], {"input_tokens": 0, "output_tokens": 0}
-
-    results_text = "\n\n".join([
-        f"Title: {r['title']}\nURL: {r['url']}\nContent: {r['content']}"
-        for r in search_results
-    ])
-
-    user_message = (
-        f"Extract regulatory entries from these search results.\n\n"
-        f"Search keywords used: {topic_en}\nTarget markets: {', '.join(markets)}\n"
-        f"Search date: {datetime.now().strftime('%Y-%m-%d')}\n\n"
-        f"Search results:\n{results_text}"
-    )
+    results_text = "\n\n".join([f"Title: {r['title']}\nURL: {r['url']}\nContent: {r['content']}" for r in search_results])
+    user_message = f"Keywords: {topic_en}\nMarkets: {', '.join(markets)}\nDate: {datetime.now().strftime('%Y-%m-%d')}\n\nSearch results:\n{results_text}"
 
     result = call_gemini(gemini_key, system_prompt, user_message, force_json=True)
     
-    # Robust JSON parsing
     raw_text = result["text"].strip()
     if raw_text.startswith("```json"): raw_text = raw_text[7:]
     if raw_text.startswith("```"): raw_text = raw_text[3:]
@@ -204,22 +184,13 @@ def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: l
     
     try:
         entries = json.loads(raw_text.strip())
-        if not isinstance(entries, list):
-            entries = []
-    except json.JSONDecodeError as e:
-        print(f"Failed to parse Gemini JSON: {e}")
+        if not isinstance(entries, list): entries = []
+    except json.JSONDecodeError:
         entries = []
         
     return entries, {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
 
-# ── Routing: Web Search (Tavily) & API ─────────────────────────────────────────
-def route_api_request(source: dict) -> list:
-    """Placeholder for direct API requests (e.g., EUR-Lex API, Safety Gate)."""
-    # Dans une prochaine itération BMAD, nous coderons les requêtes urllib spécifiques ici.
-    # Pour le moment, on retourne vide pour forcer l'usage du Web si l'API n'est pas codée.
-    print(f"[Router] Requires direct API integration for: {source['url']}")
-    return []
-
+# ── Routing: Web Search (Tavily) ───────────────────────────────────────────────
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
     def _call(payload_dict: dict) -> list:
         req = urllib.request.Request(
@@ -240,56 +211,29 @@ def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dic
     results = []
     if domains:
         try: results = _call({**base, "include_domains": domains})
-        except Exception as e: print(f"Tavily Domain Error: {e}")
+        except Exception: pass
         
-    # Fallback large si la recherche par domaine est trop restrictive ou vide
+    # Repli systématique sur le web global si la recherche par domaines stricts échoue
     if not results:
         try: results = _call(base)
-        except Exception as e: print(f"Tavily Fallback Error: {e}")
+        except Exception: pass
 
     return [{"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")[:800]} for r in results]
 
 # ── Main Run Function ──────────────────────────────────────────────────────────
-def generate_smart_query(gemini_key: str, business_definition: str, fallback_category: str) -> str:
-    """Demande à Gemini de créer une requête de recherche percutante à partir de la définition longue."""
-    if not business_definition or business_definition == "No specific business definition provided.":
-        return fallback_category
-
-    system_prompt = "You are an expert in regulatory intelligence and SEO."
-    user_prompt = f"""Read this product definition:
-{business_definition}
-
-Generate a single, highly effective search engine query (maximum 6 words) to find recent regulatory updates, safety standards, or compliance laws for this exact type of product.
-Return ONLY the search query string, without quotes or punctuation."""
-
-    result = call_gemini(gemini_key, system_prompt, user_prompt)
-    smart_query = result["text"].strip()
-    
-    return smart_query if smart_query else fallback_category
-
-def run_live_watch(
-    gemini_key: str,
-    tavily_key: str,
-    categories: list,
-    markets: list,
-    timeframe_label: str = "📅 Last 12 months"
-) -> tuple:
+def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, timeframe_label: str = "📅 Last 12 months") -> tuple:
     timeframe_cfg = TIMEFRAMES.get(timeframe_label, {"time_range": "year"})
-    
     main_category = categories[0] if categories else ""
     ontology_context = get_ontology_context(main_category)
     
-    # 1. Si on a des mots-clés dans le CSV, on les utilise.
-    # 2. Sinon, Gemini lit la définition métier et génère la requête de recherche.
+    # Génération intelligente de la requête si pas de mots-clés
     if ontology_context["keywords"] != main_category:
-        search_query = ontology_context["keywords"] + " regulation compliance update"
+        base_query = ontology_context["keywords"]
     else:
-        print(f"Keywords missing. Asking Gemini to read business definition for '{main_category}'...")
-        smart_base = generate_smart_query(gemini_key, ontology_context["definition"], main_category)
-        search_query = smart_base + " regulation update"
-        print(f"Generated Smart Query: {search_query}")
-    system_prompt = get_system_prompt(ontology_context["definition"], ontology_context["strict_attributes"])
-
+        base_query = generate_smart_query(gemini_key, ontology_context["definition"], main_category)
+    
+    search_query = base_query + " regulatory compliance law update"
+    
     all_raw_results = []
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
@@ -297,29 +241,19 @@ def run_live_watch(
         market_lang = get_market_language(market)
         sources = get_market_sources([market])
         
-        web_domains = []
-        for src in sources:
-            if "API" in src["type"].upper():
-                # Router: Envoyer vers la fonction d'API directe
-                api_results = route_api_request(src)
-                all_raw_results.extend(api_results)
-            else:
-                # Stocker le domaine pour la recherche web (Tavily)
-                web_domains.append(src["domain"])
-                
+        web_domains = [src["domain"] for src in sources]
         target_query = translate_topic(gemini_key, search_query, market_lang) if market_lang != "en" else search_query
         
-        # Lancement de la recherche Web avec les mots-clés optimisés
         market_results = search_tavily(tavily_key, target_query, web_domains, timeframe_cfg)
         all_raw_results.extend(market_results)
         
     unique_urls = set()
     filtered_results = [r for r in all_raw_results if r['url'] not in unique_urls and not unique_urls.add(r['url'])]
 
-    # Note: Jina.ai temporairement retiré pour gagner en rapidité et stabilité. 
-    # Crawl4AI prendra cette place plus tard si nécessaire.
-
-    extracted_entries, usage = extract_regulatory_entries(gemini_key, search_query, filtered_results, markets, system_prompt)
+    extracted_entries, usage = extract_regulatory_entries(
+        gemini_key, search_query, filtered_results, markets, 
+        ontology_context["definition"], ontology_context["strict_attributes"]
+    )
     
     total_usage["input_tokens"] += usage["input_tokens"]
     total_usage["output_tokens"] += usage["output_tokens"]
