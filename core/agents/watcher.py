@@ -13,8 +13,8 @@ TIMEFRAMES = {
     "📅 Last 12 months": {"time_range": "year"},
 }
 
-# AJOUT : Configuration des timeouts et retry
-GEMINI_TIMEOUT = 120  # 2 minutes au lieu de 40s
+# Configuration des timeouts et retry
+GEMINI_TIMEOUT = 120
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
@@ -68,12 +68,9 @@ def get_ontology_context(category_name: str) -> dict:
     except Exception:
         pass
     return context
-    
-# ── Gemini API Calls (VERSION CORRIGÉE) ────────────────────────────────────────
+
+# ── Gemini API Calls ───────────────────────────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
-    """
-    Appel Gemini avec retry automatique, timeout étendu et gestion des blocages.
-    """
     url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={gemini_key}"
     
     payload = {
@@ -163,7 +160,6 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
     
     raise Exception(f"Échec après {MAX_RETRIES} tentatives")
 
-
 def generate_smart_query(gemini_key: str, business_definition: str, fallback_category: str) -> str:
     if not business_definition: 
         return fallback_category
@@ -174,14 +170,12 @@ def generate_smart_query(gemini_key: str, business_definition: str, fallback_cat
     try:
         result = call_gemini(gemini_key, system_prompt, user_prompt)
         query = result["text"].strip()
-        # AJOUT : Validation basique
         if not query or len(query) > 100:
             return fallback_category
         return query
     except Exception as e:
         print(f"⚠️ Erreur génération query, fallback: {e}")
         return fallback_category
-
 
 def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
     if target_lang == "en": 
@@ -198,15 +192,7 @@ def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
         print(f"⚠️ Erreur traduction, utilisation de l'original: {e}")
         return topic
 
-
-def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, 
-                               markets: list, business_definition: str, 
-                               strict_attributes: str) -> tuple:
-    """
-    VERSION CORRIGÉE : Limitation du payload et meilleure gestion d'erreur
-    """
-    
-    # AJOUT : Limitation du nombre de résultats pour éviter payload trop gros
+def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, markets: list, business_definition: str, strict_attributes: str) -> tuple:
     MAX_RESULTS = 15
     if len(search_results) > MAX_RESULTS:
         print(f"⚠️ Limitation à {MAX_RESULTS} résultats (sur {len(search_results)})")
@@ -241,24 +227,14 @@ STRICT RULES:
 - Maximum 10 entries in the output.
 - Each summary must be concise (max 3 sentences)."""
 
-    # MODIFICATION : Limitation de la longueur du contenu par résultat
-    results_text = "\n\n".join([
-        f"Title: {r['title'][:200]}\nURL: {r['url']}\nContent: {r['content'][:600]}" 
-        for r in search_results
-    ])
+    results_text = "\n\n".join([f"Title: {r['title'][:200]}\nURL: {r['url']}\nContent: {r['content'][:600]}" for r in search_results])
     
-    user_message = f"""Keywords: {topic_en}
-Markets: {', '.join(markets)}
-
-Search results to analyze:
-{results_text}"""
+    user_message = f"Keywords: {topic_en}\nMarkets: {', '.join(markets)}\n\nSearch results to analyze:\n{results_text}"
 
     try:
         result = call_gemini(gemini_key, system_prompt, user_message, force_json=True)
-        
         raw_text = result["text"].strip()
         
-        # Nettoyage des markdown
         if raw_text.startswith("```json"): 
             raw_text = raw_text[7:]
         if raw_text.startswith("```"): 
@@ -268,7 +244,6 @@ Search results to analyze:
         
         raw_text = raw_text.strip()
         
-        # AJOUT : Validation JSON plus robuste
         if not raw_text:
             print("⚠️ Gemini a retourné une chaîne vide")
             return [], {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
@@ -277,28 +252,23 @@ Search results to analyze:
             entries = json.loads(raw_text)
         except json.JSONDecodeError as e:
             print(f"⚠️ JSON invalide de Gemini: {e}")
-            print(f"Réponse reçue: {raw_text[:500]}")
             return [], {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
         
         if not isinstance(entries, list):
             print(f"⚠️ Gemini n'a pas retourné une liste: {type(entries)}")
             entries = []
             
-        return entries, {
-            "input_tokens": result["input_tokens"], 
-            "output_tokens": result["output_tokens"]
-        }
+        return entries, {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
         
     except Exception as e:
         print(f"❌ Erreur extraction réglementaire: {e}")
         return [], {"input_tokens": 0, "output_tokens": 0}
 
-
 # ── Routing: Web Search (Tavily) ───────────────────────────────────────────────
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
     def _call(payload_dict: dict) -> list:
         req = urllib.request.Request(
-            "https://api.tavily.com/search",
+            "[https://api.tavily.com/search](https://api.tavily.com/search)",
             data=json.dumps(payload_dict).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {tavily_key}"},
             method="POST"
@@ -307,24 +277,15 @@ def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dic
             return json.loads(resp.read()).get("results", [])
 
     time_params = {"time_range": timeframe_cfg["time_range"]} if timeframe_cfg and "time_range" in timeframe_cfg else {}
-    base = {
-        "query": query, 
-        "search_depth": "advanced", 
-        "max_results": 10, 
-        "include_raw_content": False, 
-        **time_params
-    }
+    base = {"query": query, "search_depth": "advanced", "max_results": 10, "include_raw_content": False, **time_params}
     
     results = []
-    
-    # 1. Tentative avec domaines stricts
     if domains:
         try: 
             results = _call({**base, "include_domains": domains})
         except Exception as e:
             print(f"⚠️ Recherche sur domaines spécifiques échouée: {e}")
             
-    # 2. Fallback sur recherche globale
     if not results:
         try: 
             results = _call(base)
@@ -334,31 +295,16 @@ def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dic
         except Exception as e:
             raise Exception(f"Erreur Tavily: {e}")
 
-    return [
-        {
-            "title": r.get("title", "No title"), 
-            "url": r.get("url", ""), 
-            "content": r.get("content", "")[:1000]  # MODIFICATION : Limite augmentée
-        } 
-        for r in results
-    ]
-
+    return [{"title": r.get("title", "No title"), "url": r.get("url", ""), "content": r.get("content", "")[:1000]} for r in results]
 
 # ── Main Run Function ──────────────────────────────────────────────────────────
-def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, 
-                   timeframe_label: str = "📅 Last 12 months") -> tuple:
-    """
-    VERSION CORRIGÉE avec meilleure gestion d'erreur et diagnostics
-    """
-    
+def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, timeframe_label: str = "📅 Last 12 months") -> tuple:
     timeframe_cfg = TIMEFRAMES.get(timeframe_label, {"time_range": "year"})
     main_category = categories[0] if categories else "regulatory compliance"
     
     print(f"🔍 Analyse pour: {main_category} | Marchés: {markets}")
-    
     ontology_context = get_ontology_context(main_category)
     
-    # Génération de la requête
     if ontology_context["keywords"] != main_category:
         base_query = ontology_context["keywords"]
     else:
@@ -370,7 +316,6 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
     all_raw_results = []
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
-    # Recherche par marché
     for market in markets:
         print(f"\n🌍 Recherche pour {market}...")
         market_lang = get_market_language(market)
@@ -387,40 +332,25 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
             print(f"   ❌ Erreur recherche {market}: {e}")
             continue
         
-    # Vérification des résultats
     if not all_raw_results:
         print(f"⚠️ Aucun résultat Tavily pour '{search_query}'")
         return [], total_usage
 
-    # Déduplication
     unique_urls = set()
-    filtered_results = [
-        r for r in all_raw_results 
-        if r['url'] not in unique_urls and not unique_urls.add(r['url'])
-    ]
-    
+    filtered_results = [r for r in all_raw_results if r['url'] not in unique_urls and not unique_urls.add(r['url'])]
     print(f"\n📊 {len(filtered_results)} résultats uniques à analyser par Gemini...")
 
-    # Extraction réglementaire
-    extracted_entries, usage = extract_regulatory_entries(
-        gemini_key, search_query, filtered_results, markets, 
-        ontology_context["definition"], ontology_context["strict_attributes"]
-    )
+    extracted_entries, usage = extract_regulatory_entries(gemini_key, search_query, filtered_results, markets, ontology_context["definition"], ontology_context["strict_attributes"])
     
     total_usage["input_tokens"] += usage["input_tokens"]
     total_usage["output_tokens"] += usage["output_tokens"]
-    
     print(f"✅ {len(extracted_entries)} entrées extraites")
 
-    # Déduplication des titres similaires
     seen_titles = []
     unique_entries = []
     for entry in extracted_entries:
         title = entry.get("title", "").lower().strip()
-        is_dup = any(
-            len(set(title.split()) & set(seen.split())) / max(len(set(title.split())), 1) > 0.7 
-            for seen in seen_titles
-        )
+        is_dup = any(len(set(title.split()) & set(seen.split())) / max(len(set(title.split())), 1) > 0.7 for seen in seen_titles)
         if not is_dup:
             seen_titles.append(title)
             unique_entries.append(entry)
