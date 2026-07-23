@@ -4,6 +4,7 @@ import urllib.error
 from datetime import datetime
 import os
 import pandas as pd
+import time
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 TIMEFRAMES = {
@@ -11,6 +12,11 @@ TIMEFRAMES = {
     "⚡ Last 30 days":   {"time_range": "month"},
     "📅 Last 12 months": {"time_range": "year"},
 }
+
+# AJOUT : Configuration des timeouts et retry
+GEMINI_TIMEOUT = 120  # 2 minutes au lieu de 40s
+MAX_RETRIES = 3
+RETRY_DELAY = 2
 
 def get_market_sources(markets: list) -> list:
     sources = []
@@ -63,58 +69,162 @@ def get_ontology_context(category_name: str) -> dict:
         pass
     return context
 
-# ── Gemini API Calls (AVEC GESTION D'ERREUR STRICTE) ───────────────────────────
+# ── Gemini API Calls (VERSION CORRIGÉE) ────────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
+    """
+    Appel Gemini avec retry automatique, timeout étendu et gestion des blocages.
+    """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
+    
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {"temperature": 0.1}
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 8000  # AJOUT : Limite explicite
+        },
+        # AJOUT : Configuration de sécurité plus permissive
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"}
+        ]
     }
+    
     if force_json:
         payload["generationConfig"]["responseMimeType"] = "application/json"
 
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST"
-    )
+    for attempt in range(MAX_RETRIES):
+        try:
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}, 
+                method="POST"
+            )
+            
+            # MODIFICATION : Timeout augmenté
+            with urllib.request.urlopen(req, timeout=GEMINI_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+            
+            # AJOUT : Vérification de blocage par les filtres de sécurité
+            if "candidates" not in data or not data["candidates"]:
+                if "promptFeedback" in data and data["promptFeedback"].get("blockReason"):
+                    raise Exception(f"Gemini a bloqué la requête : {data['promptFeedback']['blockReason']}")
+                raise Exception("Gemini n'a retourné aucun candidat (réponse vide)")
+            
+            candidate = data["candidates"][0]
+            
+            # AJOUT : Vérification du finish_reason
+            finish_reason = candidate.get("finishReason", "")
+            if finish_reason == "SAFETY":
+                raise Exception("Réponse bloquée par les filtres de sécurité Gemini")
+            elif finish_reason == "MAX_TOKENS":
+                print("⚠️ Warning: Réponse tronquée (limite de tokens atteinte)")
+            
+            # AJOUT : Vérification que la réponse contient du texte
+            if "content" not in candidate or "parts" not in candidate["content"]:
+                raise Exception("Structure de réponse Gemini invalide")
+            
+            parts = candidate["content"]["parts"]
+            if not parts or "text" not in parts[0]:
+                raise Exception("Gemini n'a retourné aucun texte")
+            
+            text_response = parts[0]["text"]
+            usage = data.get("usageMetadata", {})
+            
+            return {
+                "text": text_response,
+                "input_tokens": usage.get("promptTokenCount", 0),
+                "output_tokens": usage.get("candidatesTokenCount", 0)
+            }
+            
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            error_msg = f"Gemini API refusée (Code {e.code}): {error_body}"
+            
+            # Gestion spécifique des erreurs 429 (rate limit) et 503 (overload)
+            if e.code in [429, 503] and attempt < MAX_RETRIES - 1:
+                wait_time = RETRY_DELAY * (attempt + 1)
+                print(f"⏳ Retry {attempt + 1}/{MAX_RETRIES} après {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            
+            raise Exception(error_msg)
+            
+        except urllib.error.URLError as e:
+            if "timeout" in str(e).lower() and attempt < MAX_RETRIES - 1:
+                print(f"⏳ Timeout détecté, retry {attempt + 1}/{MAX_RETRIES}...")
+                time.sleep(RETRY_DELAY)
+                continue
+            raise Exception(f"Timeout Gemini après {GEMINI_TIMEOUT}s: {e}")
+            
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                print(f"⚠️ Erreur Gemini (tentative {attempt + 1}/{MAX_RETRIES}): {e}")
+                time.sleep(RETRY_DELAY)
+                continue
+            raise Exception(f"Erreur finale Gemini: {e}")
     
-    try:
-        with urllib.request.urlopen(req, timeout=40) as resp:
-            data = json.loads(resp.read())
-        text_response = data["candidates"][0]["content"]["parts"][0]["text"]
-        usage = data.get("usageMetadata", {})
-        return {
-            "text": text_response,
-            "input_tokens": usage.get("promptTokenCount", 0),
-            "output_tokens": usage.get("candidatesTokenCount", 0)
-        }
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8')
-        raise Exception(f"Gemini API refusée (Code {e.code}): {error_body}")
-    except Exception as e:
-        raise Exception(f"Erreur de connexion à Gemini: {e}")
+    raise Exception(f"Échec après {MAX_RETRIES} tentatives")
+
 
 def generate_smart_query(gemini_key: str, business_definition: str, fallback_category: str) -> str:
-    if not business_definition: return fallback_category
+    if not business_definition: 
+        return fallback_category
+    
     system_prompt = "You are an expert in regulatory intelligence and SEO."
-    user_prompt = f"Read this product definition:\n{business_definition}\nGenerate a single search engine query (max 6 words) to find recent regulatory updates or laws for this product. Return ONLY the search query string."
-    result = call_gemini(gemini_key, system_prompt, user_prompt)
-    return result["text"].strip() if result["text"] else fallback_category
+    user_prompt = f"Read this product definition:\n{business_definition}\n\nGenerate a single search engine query (max 6 words) to find recent regulatory updates or laws for this product. Return ONLY the search query string, nothing else."
+    
+    try:
+        result = call_gemini(gemini_key, system_prompt, user_prompt)
+        query = result["text"].strip()
+        # AJOUT : Validation basique
+        if not query or len(query) > 100:
+            return fallback_category
+        return query
+    except Exception as e:
+        print(f"⚠️ Erreur génération query, fallback: {e}")
+        return fallback_category
+
 
 def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
-    if target_lang == "en": return topic
+    if target_lang == "en": 
+        return topic
+    
     system = "Translate the given search query into the target language. Return ONLY the translated string."
     user = f"Translate into ISO code '{target_lang}':\n\n{topic}"
-    result = call_gemini(gemini_key, system, user)
-    return result["text"].strip() if result["text"] else topic
+    
+    try:
+        result = call_gemini(gemini_key, system, user)
+        translated = result["text"].strip()
+        return translated if translated else topic
+    except Exception as e:
+        print(f"⚠️ Erreur traduction, utilisation de l'original: {e}")
+        return topic
 
-def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, markets: list, business_definition: str, strict_attributes: str) -> tuple:
+
+def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, 
+                               markets: list, business_definition: str, 
+                               strict_attributes: str) -> tuple:
+    """
+    VERSION CORRIGÉE : Limitation du payload et meilleure gestion d'erreur
+    """
+    
+    # AJOUT : Limitation du nombre de résultats pour éviter payload trop gros
+    MAX_RESULTS = 15
+    if len(search_results) > MAX_RESULTS:
+        print(f"⚠️ Limitation à {MAX_RESULTS} résultats (sur {len(search_results)})")
+        search_results = search_results[:MAX_RESULTS]
+    
     system_prompt = f"""You are Agent 1, a regulatory intelligence extractor. Always output in English.
+
 --- PRODUCT CONTEXT ---
-DEFINITION: {business_definition}
-ATTRIBUTES: {strict_attributes}
+DEFINITION: {business_definition[:500] if business_definition else 'N/A'}
+ATTRIBUTES: {strict_attributes[:300] if strict_attributes else 'N/A'}
 -----------------------
+
 OUTPUT SCHEMA REQUIRED (JSON Array):
 [
   {{
@@ -130,98 +240,174 @@ OUTPUT SCHEMA REQUIRED (JSON Array):
     "url": "source URL"
   }}
 ]
-Rules:
-- Only include genuine regulatory content (laws, standards).
-- If nothing relevant is found, return []."""
 
-    results_text = "\n\n".join([f"Title: {r['title']}\nURL: {r['url']}\nContent: {r['content']}" for r in search_results])
-    user_message = f"Keywords: {topic_en}\nMarkets: {', '.join(markets)}\n\nSearch results:\n{results_text}"
+STRICT RULES:
+- Only include genuine regulatory content (laws, standards, official regulations).
+- If nothing relevant is found, return an empty array: []
+- Maximum 10 entries in the output.
+- Each summary must be concise (max 3 sentences)."""
 
-    result = call_gemini(gemini_key, system_prompt, user_message, force_json=True)
+    # MODIFICATION : Limitation de la longueur du contenu par résultat
+    results_text = "\n\n".join([
+        f"Title: {r['title'][:200]}\nURL: {r['url']}\nContent: {r['content'][:600]}" 
+        for r in search_results
+    ])
     
-    raw_text = result["text"].strip()
-    if raw_text.startswith("```json"): raw_text = raw_text[7:]
-    if raw_text.startswith("```"): raw_text = raw_text[3:]
-    if raw_text.endswith("```"): raw_text = raw_text[:-3]
-    
+    user_message = f"""Keywords: {topic_en}
+Markets: {', '.join(markets)}
+
+Search results to analyze:
+{results_text}"""
+
     try:
-        entries = json.loads(raw_text.strip())
-        if not isinstance(entries, list): entries = []
-    except json.JSONDecodeError:
-        entries = []
+        result = call_gemini(gemini_key, system_prompt, user_message, force_json=True)
         
-    return entries, {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
+        raw_text = result["text"].strip()
+        
+        # Nettoyage des markdown
+        if raw_text.startswith("```json"): 
+            raw_text = raw_text[7:]
+        if raw_text.startswith("```"): 
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"): 
+            raw_text = raw_text[:-3]
+        
+        raw_text = raw_text.strip()
+        
+        # AJOUT : Validation JSON plus robuste
+        if not raw_text:
+            print("⚠️ Gemini a retourné une chaîne vide")
+            return [], {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
+        
+        try:
+            entries = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON invalide de Gemini: {e}")
+            print(f"Réponse reçue: {raw_text[:500]}")
+            return [], {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
+        
+        if not isinstance(entries, list):
+            print(f"⚠️ Gemini n'a pas retourné une liste: {type(entries)}")
+            entries = []
+            
+        return entries, {
+            "input_tokens": result["input_tokens"], 
+            "output_tokens": result["output_tokens"]
+        }
+        
+    except Exception as e:
+        print(f"❌ Erreur extraction réglementaire: {e}")
+        return [], {"input_tokens": 0, "output_tokens": 0}
 
-# ── Routing: Web Search (Tavily) (AVEC GESTION D'ERREUR STRICTE) ───────────────
+
+# ── Routing: Web Search (Tavily) ───────────────────────────────────────────────
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
     def _call(payload_dict: dict) -> list:
         req = urllib.request.Request(
-            "[https://api.tavily.com/search](https://api.tavily.com/search)",
+            "https://api.tavily.com/search",
             data=json.dumps(payload_dict).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {tavily_key}"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read()).get("results", [])
 
     time_params = {"time_range": timeframe_cfg["time_range"]} if timeframe_cfg and "time_range" in timeframe_cfg else {}
-    base = {"query": query, "search_depth": "advanced", "max_results": 10, "include_raw_content": False, **time_params}
+    base = {
+        "query": query, 
+        "search_depth": "advanced", 
+        "max_results": 10, 
+        "include_raw_content": False, 
+        **time_params
+    }
     
     results = []
-    # 1. On tente avec les domaines stricts
+    
+    # 1. Tentative avec domaines stricts
     if domains:
         try: 
             results = _call({**base, "include_domains": domains})
-        except Exception:
-            pass # Si les domaines bloquent, on passe au fallback global
+        except Exception as e:
+            print(f"⚠️ Recherche sur domaines spécifiques échouée: {e}")
             
-    # 2. Si ça n'a rien donné, on tente une recherche sur tout le web
+    # 2. Fallback sur recherche globale
     if not results:
         try: 
             results = _call(base)
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
-            raise Exception(f"Tavily API refusée (Code {e.code}): Vérifiez vos crédits ou votre clé. Détail: {error_body}")
+            raise Exception(f"Tavily API refusée (Code {e.code}): {error_body}")
         except Exception as e:
-            raise Exception(f"Erreur de connexion à Tavily: {e}")
+            raise Exception(f"Erreur Tavily: {e}")
 
-    return [{"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")[:800]} for r in results]
+    return [
+        {
+            "title": r.get("title", "No title"), 
+            "url": r.get("url", ""), 
+            "content": r.get("content", "")[:1000]  # MODIFICATION : Limite augmentée
+        } 
+        for r in results
+    ]
+
 
 # ── Main Run Function ──────────────────────────────────────────────────────────
-def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, timeframe_label: str = "📅 Last 12 months") -> tuple:
+def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, 
+                   timeframe_label: str = "📅 Last 12 months") -> tuple:
+    """
+    VERSION CORRIGÉE avec meilleure gestion d'erreur et diagnostics
+    """
+    
     timeframe_cfg = TIMEFRAMES.get(timeframe_label, {"time_range": "year"})
-    main_category = categories[0] if categories else ""
+    main_category = categories[0] if categories else "regulatory compliance"
+    
+    print(f"🔍 Analyse pour: {main_category} | Marchés: {markets}")
+    
     ontology_context = get_ontology_context(main_category)
     
+    # Génération de la requête
     if ontology_context["keywords"] != main_category:
         base_query = ontology_context["keywords"]
     else:
         base_query = generate_smart_query(gemini_key, ontology_context["definition"], main_category)
     
     search_query = base_query + " regulatory compliance law update"
+    print(f"📝 Requête générée: {search_query}")
     
     all_raw_results = []
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
+    # Recherche par marché
     for market in markets:
+        print(f"\n🌍 Recherche pour {market}...")
         market_lang = get_market_language(market)
         sources = get_market_sources([market])
         web_domains = [src["domain"] for src in sources]
         
-        target_query = translate_topic(gemini_key, search_query, market_lang) if market_lang != "en" else search_query
+        target_query = translate_topic(gemini_key, search_query, market_lang)
         
-        # Appel Tavily
-        market_results = search_tavily(tavily_key, target_query, web_domains, timeframe_cfg)
-        all_raw_results.extend(market_results)
+        try:
+            market_results = search_tavily(tavily_key, target_query, web_domains, timeframe_cfg)
+            print(f"   ✅ {len(market_results)} résultats trouvés")
+            all_raw_results.extend(market_results)
+        except Exception as e:
+            print(f"   ❌ Erreur recherche {market}: {e}")
+            continue
         
-    # DIAGNOSTIC : Si Tavily ne trouve rien du tout
+    # Vérification des résultats
     if not all_raw_results:
-        raise Exception(f"Tavily a fouillé le web mais a trouvé 0 résultat pour la requête : '{search_query}'. La recherche est peut-être trop restrictive.")
+        print(f"⚠️ Aucun résultat Tavily pour '{search_query}'")
+        return [], total_usage
 
+    # Déduplication
     unique_urls = set()
-    filtered_results = [r for r in all_raw_results if r['url'] not in unique_urls and not unique_urls.add(r['url'])]
+    filtered_results = [
+        r for r in all_raw_results 
+        if r['url'] not in unique_urls and not unique_urls.add(r['url'])
+    ]
+    
+    print(f"\n📊 {len(filtered_results)} résultats uniques à analyser par Gemini...")
 
-    # Appel Gemini
+    # Extraction réglementaire
     extracted_entries, usage = extract_regulatory_entries(
         gemini_key, search_query, filtered_results, markets, 
         ontology_context["definition"], ontology_context["strict_attributes"]
@@ -229,14 +415,23 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
     
     total_usage["input_tokens"] += usage["input_tokens"]
     total_usage["output_tokens"] += usage["output_tokens"]
+    
+    print(f"✅ {len(extracted_entries)} entrées extraites")
 
+    # Déduplication des titres similaires
     seen_titles = []
     unique_entries = []
     for entry in extracted_entries:
         title = entry.get("title", "").lower().strip()
-        is_dup = any(len(set(title.split()) & set(seen.split())) / max(len(set(title.split())), 1) > 0.7 for seen in seen_titles)
+        is_dup = any(
+            len(set(title.split()) & set(seen.split())) / max(len(set(title.split())), 1) > 0.7 
+            for seen in seen_titles
+        )
         if not is_dup:
             seen_titles.append(title)
             unique_entries.append(entry)
 
+    print(f"🎯 {len(unique_entries)} entrées finales après déduplication\n")
+    print(f"💰 Usage tokens: {total_usage['input_tokens']} in / {total_usage['output_tokens']} out")
+    
     return unique_entries, total_usage
