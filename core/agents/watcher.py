@@ -68,7 +68,7 @@ def get_ontology_context(category_name: str) -> dict:
     except Exception:
         pass
     return context
-
+    
 # ── Gemini API Calls (VERSION CORRIGÉE) ────────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
     """
@@ -81,9 +81,8 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 8000  # AJOUT : Limite explicite
+            "maxOutputTokens": 8000
         },
-        # AJOUT : Configuration de sécurité plus permissive
         "safetySettings": [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
@@ -104,11 +103,9 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
                 method="POST"
             )
             
-            # MODIFICATION : Timeout augmenté
             with urllib.request.urlopen(req, timeout=GEMINI_TIMEOUT) as resp:
                 data = json.loads(resp.read())
             
-            # AJOUT : Vérification de blocage par les filtres de sécurité
             if "candidates" not in data or not data["candidates"]:
                 if "promptFeedback" in data and data["promptFeedback"].get("blockReason"):
                     raise Exception(f"Gemini a bloqué la requête : {data['promptFeedback']['blockReason']}")
@@ -116,14 +113,12 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             
             candidate = data["candidates"][0]
             
-            # AJOUT : Vérification du finish_reason
             finish_reason = candidate.get("finishReason", "")
             if finish_reason == "SAFETY":
                 raise Exception("Réponse bloquée par les filtres de sécurité Gemini")
             elif finish_reason == "MAX_TOKENS":
                 print("⚠️ Warning: Réponse tronquée (limite de tokens atteinte)")
             
-            # AJOUT : Vérification que la réponse contient du texte
             if "content" not in candidate or "parts" not in candidate["content"]:
                 raise Exception("Structure de réponse Gemini invalide")
             
@@ -144,7 +139,6 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             error_body = e.read().decode('utf-8')
             error_msg = f"Gemini API refusée (Code {e.code}): {error_body}"
             
-            # Gestion spécifique des erreurs 429 (rate limit) et 503 (overload)
             if e.code in [429, 503] and attempt < MAX_RETRIES - 1:
                 wait_time = RETRY_DELAY * (attempt + 1)
                 print(f"⏳ Retry {attempt + 1}/{MAX_RETRIES} après {wait_time}s...")
