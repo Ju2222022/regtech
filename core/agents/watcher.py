@@ -250,6 +250,23 @@ def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dic
     return [{"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")[:800]} for r in results]
 
 # ── Main Run Function ──────────────────────────────────────────────────────────
+def generate_smart_query(gemini_key: str, business_definition: str, fallback_category: str) -> str:
+    """Demande à Gemini de créer une requête de recherche percutante à partir de la définition longue."""
+    if not business_definition or business_definition == "No specific business definition provided.":
+        return fallback_category
+
+    system_prompt = "You are an expert in regulatory intelligence and SEO."
+    user_prompt = f"""Read this product definition:
+{business_definition}
+
+Generate a single, highly effective search engine query (maximum 6 words) to find recent regulatory updates, safety standards, or compliance laws for this exact type of product.
+Return ONLY the search query string, without quotes or punctuation."""
+
+    result = call_gemini(gemini_key, system_prompt, user_prompt)
+    smart_query = result["text"].strip()
+    
+    return smart_query if smart_query else fallback_category
+
 def run_live_watch(
     gemini_key: str,
     tavily_key: str,
@@ -262,8 +279,15 @@ def run_live_watch(
     main_category = categories[0] if categories else ""
     ontology_context = get_ontology_context(main_category)
     
-    # On utilise les mots-clés du CSV pour la recherche web
-    search_query = ontology_context["keywords"] + " regulation compliance update"
+    # 1. Si on a des mots-clés dans le CSV, on les utilise.
+    # 2. Sinon, Gemini lit la définition métier et génère la requête de recherche.
+    if ontology_context["keywords"] != main_category:
+        search_query = ontology_context["keywords"] + " regulation compliance update"
+    else:
+        print(f"Keywords missing. Asking Gemini to read business definition for '{main_category}'...")
+        smart_base = generate_smart_query(gemini_key, ontology_context["definition"], main_category)
+        search_query = smart_base + " regulation update"
+        print(f"Generated Smart Query: {search_query}")
     system_prompt = get_system_prompt(ontology_context["definition"], ontology_context["strict_attributes"])
 
     all_raw_results = []
