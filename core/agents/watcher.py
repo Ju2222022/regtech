@@ -74,7 +74,7 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
     """
     Appel Gemini avec retry automatique, timeout étendu et gestion des blocages.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={gemini_key}"
     
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
