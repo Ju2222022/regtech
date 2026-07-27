@@ -299,10 +299,6 @@ def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dic
 
 # ── Main Run Function ──────────────────────────────────────────────────────────
 def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, timeframe_label: str = "📅 Last 12 months") -> tuple:
-    # --- TEST TEMPORAIRE BMAD ---
-    gemini_key = "AQ.Ab8RN6JZJogy2AtXD5-Ckz8k4yLoTCD2_EI_nh53VkJAJB2xZw"
-    tavily_key = "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"
-    # ----------------------------
     timeframe_cfg = TIMEFRAMES.get(timeframe_label, {"time_range": "year"})
     main_category = categories[0] if categories else "regulatory compliance"
     
