@@ -69,18 +69,17 @@ def get_ontology_context(category_name: str) -> dict:
         pass
     return context
 
-# ── Gemini API Calls (VERSION UNIVERSELLE) ─────────────────────────────────────
+# ── Gemini API Calls (VERSION MODERNE 2026) ────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
     """
-    Appel Gemini avec compatibilité universelle (gemini-pro v1.0).
+    Appel Gemini avec le modèle de dernière génération et support JSON natif.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={gemini_key}"
-    
-    # Fusion des prompts (gemini-pro 1.0 ne supporte pas systemInstruction)
-    combined_prompt = f"--- SYSTEM INSTRUCTIONS ---\n{system_prompt}\n\n--- USER REQUEST ---\n{user_prompt}"
+    # L'URL magique avec le modèle qui existe bien sur ton compte
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={gemini_key}"
     
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": combined_prompt}]}],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
         "generationConfig": {
             "temperature": 0.1,
             "maxOutputTokens": 8000
@@ -92,6 +91,9 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"}
         ]
     }
+    
+    if force_json:
+        payload["generationConfig"]["responseMimeType"] = "application/json"
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -115,8 +117,6 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             finish_reason = candidate.get("finishReason", "")
             if finish_reason == "SAFETY":
                 raise Exception("Réponse bloquée par les filtres de sécurité Gemini")
-            elif finish_reason == "MAX_TOKENS":
-                print("⚠️ Warning: Réponse tronquée (limite de tokens atteinte)")
             
             if "content" not in candidate or "parts" not in candidate["content"]:
                 raise Exception("Structure de réponse Gemini invalide")
@@ -145,13 +145,6 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
                 continue
             
             raise Exception(error_msg)
-            
-        except urllib.error.URLError as e:
-            if "timeout" in str(e).lower() and attempt < MAX_RETRIES - 1:
-                print(f"⏳ Timeout détecté, retry {attempt + 1}/{MAX_RETRIES}...")
-                time.sleep(RETRY_DELAY)
-                continue
-            raise Exception(f"Timeout Gemini après {GEMINI_TIMEOUT}s: {e}")
             
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
