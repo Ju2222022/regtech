@@ -268,7 +268,7 @@ STRICT RULES:
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
     def _call(payload_dict: dict) -> list:
         req = urllib.request.Request(
-            "[https://api.tavily.com/search](https://api.tavily.com/search)",
+            "https://api.tavily.com/search",
             data=json.dumps(payload_dict).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {tavily_key}"},
             method="POST"
