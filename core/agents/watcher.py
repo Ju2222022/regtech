@@ -261,8 +261,7 @@ STRICT RULES:
         return entries, {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
         
     except Exception as e:
-        print(f"❌ Erreur extraction réglementaire: {e}")
-        return [], {"input_tokens": 0, "output_tokens": 0}
+            raise Exception(f"Erreur de l'IA Gemini lors de l'analyse : {str(e)}")
 
 # ── Routing: Web Search (Tavily) ───────────────────────────────────────────────
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
