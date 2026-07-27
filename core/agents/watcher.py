@@ -71,7 +71,7 @@ def get_ontology_context(category_name: str) -> dict:
 
 # ── Gemini API Calls ───────────────────────────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
     
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
