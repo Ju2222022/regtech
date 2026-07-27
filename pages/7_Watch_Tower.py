@@ -172,7 +172,11 @@ def main():
 
         def render_signal_card(sig_id, data):
             with st.container(border=True):
-                st.markdown(f"#### 📄 {data['title']}")
+                if data.get("url"):
+                    st.markdown(f"#### 📄 [{data['title']}]({data['url']})")
+                else:
+                    st.markdown(f"#### 📄 {data['title']}")
+                    
                 st.caption(f"🌍 **Market:** {data['market']} | 🏛️ **Source:** {data['source']} | 📅 **Published:** {data['date']}")
                 st.info(f"**AI Summary:** {data['summary']}")
                 
