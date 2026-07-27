@@ -115,7 +115,7 @@ def main():
         if not (gemini_key and tavily_key):
             st.error("⚠️ API keys (Gemini & Tavily) missing in your secrets setup.")
         else:
-            with st.spinner(f"Agent 1 is scanning global sources for the {selected_timeframe}..."):
+            with st.spinner(f"RegWatch is scanning the regulatory pool for the {selected_timeframe}..."):
                 try:
                     # MODIFICATION 3 : On injecte la période choisie dans l'UI vers le moteur
                     live_entries, usage = run_live_watch(
