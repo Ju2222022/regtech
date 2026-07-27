@@ -326,15 +326,12 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
         
         try:
             market_results = search_tavily(tavily_key, target_query, web_domains, timeframe_cfg)
-            print(f"   ✅ {len(market_results)} résultats trouvés")
             all_raw_results.extend(market_results)
         except Exception as e:
-            print(f"   ❌ Erreur recherche {market}: {e}")
-            continue
+            raise Exception(f"Erreur API Tavily sur le marché {market} : {str(e)}")
         
     if not all_raw_results:
-        print(f"⚠️ Aucun résultat Tavily pour '{search_query}'")
-        return [], total_usage
+        raise Exception(f"Tavily a bien fonctionné, mais a trouvé 0 résultat pour la requête : '{search_query}'.")
 
     unique_urls = set()
     filtered_results = [r for r in all_raw_results if r['url'] not in unique_urls and not unique_urls.add(r['url'])]
