@@ -105,8 +105,8 @@ def main():
     selected_timeframe = st.selectbox("Timeframe (Search Depth)", ["⚡ Last 7 days", "⚡ Last 30 days", "📅 Last 12 months"], index=2)
         
     # On récupère les clés depuis la session (onglet Settings)
-    gemini_key = st.session_state.get("gemini_key", "")
-    tavily_key = st.session_state.get("tavily_key", "")
+    gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+    tavily_key = st.secrets.get("TAVILY_API_KEY", "")
     
     categories_to_scan = selected_subcategories if selected_subcategories else selected_categories
     ready_to_scan = bool(categories_to_scan and countries)
