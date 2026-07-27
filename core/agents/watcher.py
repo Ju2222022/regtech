@@ -69,13 +69,18 @@ def get_ontology_context(category_name: str) -> dict:
         pass
     return context
 
-# ── Gemini API Calls ───────────────────────────────────────────────────────────
+# ── Gemini API Calls (VERSION UNIVERSELLE) ─────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+    """
+    Appel Gemini avec compatibilité universelle (gemini-pro v1.0).
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={gemini_key}"
+    
+    # Fusion des prompts (gemini-pro 1.0 ne supporte pas systemInstruction)
+    combined_prompt = f"--- SYSTEM INSTRUCTIONS ---\n{system_prompt}\n\n--- USER REQUEST ---\n{user_prompt}"
     
     payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "contents": [{"role": "user", "parts": [{"text": combined_prompt}]}],
         "generationConfig": {
             "temperature": 0.1,
             "maxOutputTokens": 8000
@@ -87,9 +92,6 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"}
         ]
     }
-    
-    if force_json:
-        payload["generationConfig"]["responseMimeType"] = "application/json"
 
     for attempt in range(MAX_RETRIES):
         try:
