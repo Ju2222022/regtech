@@ -131,6 +131,7 @@ def main():
                         sig_id = f"sig_{datetime.now().strftime('%H%M%S')}_{idx}"
                         new_db[sig_id] = {
                             "title": entry.get("title", "Untitled Signal"),
+                            "url": entry.get("url", ""),
                             "market": ", ".join(entry.get("markets", countries)),
                             "source": entry.get("source", "Web Search"),
                             "date": entry.get("date", datetime.now().strftime("%Y-%m-%d")),
