@@ -32,10 +32,9 @@ def save_signals(data):
 # ==========================================
 try:
     from core.agents.watcher import run_live_watch
+    from core.agents.impact import find_matching_legal_cards, analyze_gap_with_gemini
 except ImportError:
-    st.error("Impossible de trouver `watcher.py`. Assure-toi qu'il est bien dans `core/agents/`.")
-
-st.set_page_config(page_title="Watch Tower | RegWatch", page_icon="📡", layout="wide")
+    st.error("Impossible de trouver les agents dans `core/agents/`.")
 
 # ==========================================
 # DATA LOADING
@@ -218,10 +217,10 @@ def main():
                 
                 col_a, col_b, col_c, col_d = st.columns([2, 2, 1, 1])
                 with col_a:
-                    st.button("📝 Assess Impact", key=f"assess_{sig_id}", type="primary", use_container_width=True)
+                    # On capture le clic du bouton
+                    assess_clicked = st.button("📝 Assess Impact", key=f"assess_{sig_id}", type="primary", use_container_width=True)
                 with col_b:
                     st.button("💬 Chat with Assistant", key=f"chat_{sig_id}", use_container_width=True)
-                
                 with col_c:
                     if data['status'] != "bookmark":
                         st.button("📌 Bookmark", key=f"bookmark_{sig_id}", use_container_width=True, on_click=update_signal_status, args=(sig_id, "bookmark"))
@@ -232,6 +231,37 @@ def main():
                         st.button("🚫 Dismiss", key=f"dismiss_{sig_id}", use_container_width=True, on_click=update_signal_status, args=(sig_id, "archive"))
                     else:
                         st.button("📥 To Inbox", key=f"inbox_restore_{sig_id}", use_container_width=True, on_click=update_signal_status, args=(sig_id, "inbox"))
+
+                # LOGIQUE D'ANALYSE D'IMPACT DÉCLENCHÉE PAR LE BOUTON
+                if assess_clicked:
+                    with st.spinner("Analyzing impact against internal Legal Cards..."):
+                        matched_cards = find_matching_legal_cards(data)
+                        
+                        if not matched_cards:
+                            st.warning("⚠️ No matching Legal Card found for this market/category. Please create one in the Editor to enable Gap Analysis.")
+                        else:
+                            st.divider()
+                            for card_info in matched_cards:
+                                st.markdown(f"#### 🔍 Gap Analysis vs. `{card_info['filename']}`")
+                                # La variable gemini_key est récupérée plus haut dans main()
+                                result = analyze_gap_with_gemini(gemini_key, data, card_info['data'])
+                                
+                                # Affichage du statut
+                                if "Delta" in result.get('status', ''):
+                                    st.error(f"**Status:** {result.get('status')}")
+                                elif "Compliant" in result.get('status', ''):
+                                    st.success(f"**Status:** {result.get('status')}")
+                                else:
+                                    st.warning(f"**Status:** {result.get('status')}")
+                                
+                                # Affichage de l'analyse
+                                st.markdown(f"**Analysis:** {result.get('analysis')}")
+                                
+                                # Affichage des écarts (Gaps) s'il y en a
+                                if result.get('gaps'):
+                                    st.markdown("**Identified Gaps:**")
+                                    for gap in result.get('gaps'):
+                                        st.markdown(f"- **[{gap.get('type')}]** {gap.get('description')}")
 
         with tab_inbox:
             inbox_signals = {k: v for k, v in st.session_state.signals_db.items() if v["status"] == "inbox"}
