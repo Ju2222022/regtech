@@ -2,7 +2,30 @@ import streamlit as st
 import time
 import os
 import pandas as pd
+import json
 from datetime import datetime
+
+# ==========================================
+# SYSTÈME DE PERSISTANCE JSON
+# ==========================================
+DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'signals_state.json')
+
+def load_signals():
+    """Charge la base de données des alertes depuis le fichier JSON."""
+    if os.path.exists(DB_PATH):
+        try:
+            with open(DB_PATH, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            return {} # Retourne un dictionnaire vide si le fichier est corrompu
+    return {} # Retourne un dictionnaire vide si le fichier n'existe pas encore
+
+def save_signals(data):
+    """Sauvegarde la base de données dans le fichier JSON de manière lisible."""
+    # S'assure que le dossier data existe
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    with open(DB_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 # ==========================================
 # IMPORT DU MOTEUR IA
@@ -43,13 +66,17 @@ if "scan_executed" not in st.session_state:
     st.session_state.scan_executed = False
 
 if "signals_db" not in st.session_state:
-    st.session_state.signals_db = {}
+    # Chargement depuis le fichier JSON au lieu de démarrer à vide
+    st.session_state.signals_db = load_signals()
     
 if "last_kpi_cost" not in st.session_state:
     st.session_state.last_kpi_cost = 0.0
 
 def update_signal_status(sig_id, new_status):
+    # Mise à jour en mémoire vive
     st.session_state.signals_db[sig_id]["status"] = new_status
+    # Sauvegarde immédiate sur le disque dur
+    save_signals(st.session_state.signals_db)
 
 # ==========================================
 # MAIN APP
@@ -98,13 +125,11 @@ def main():
 
     with col4:
         available_countries = get_active_countries()
-        # MODIFICATION 1 : Filtre vide par défaut (default=[])
         countries = st.multiselect("Target Geographies", available_countries, default=[])
 
-    # MODIFICATION 2 : Ajout du choix de la période temporelle pour éviter les résultats nuls
     selected_timeframe = st.selectbox("Timeframe (Search Depth)", ["⚡ Last 7 days", "⚡ Last 30 days", "📅 Last 12 months"], index=2)
         
-    # On récupère les clés depuis la session (onglet Settings)
+    # On récupère les clés depuis la session (onglet Settings ou Secrets)
     gemini_key = st.secrets.get("GEMINI_API_KEY", "")
     tavily_key = st.secrets.get("TAVILY_API_KEY", "")
     
@@ -115,9 +140,8 @@ def main():
         if not (gemini_key and tavily_key):
             st.error("⚠️ API keys (Gemini & Tavily) missing in your secrets setup.")
         else:
-            with st.spinner(f"RegWatch is scanning the regulatory pool for the {selected_timeframe}..."):
+            with st.spinner(f"RegWatch AI is scanning the regulatory pool for the {selected_timeframe}..."):
                 try:
-                    # MODIFICATION 3 : On injecte la période choisie dans l'UI vers le moteur
                     live_entries, usage = run_live_watch(
                         gemini_key=gemini_key,
                         tavily_key=tavily_key,
@@ -143,6 +167,9 @@ def main():
                     
                     if new_db:
                         st.session_state.signals_db.update(new_db)
+                        # Sauvegarde immédiate après un nouveau scan fructueux
+                        save_signals(st.session_state.signals_db)
+                        
                         st.success(f"Scan complete! Found {len(new_db)} new signals.")
                         
                         est_cost = (usage['input_tokens'] / 1_000_000 * 0.075) + (usage['output_tokens'] / 1_000_000 * 0.30)
@@ -172,6 +199,7 @@ def main():
 
         def render_signal_card(sig_id, data):
             with st.container(border=True):
+                # Rendu du titre cliquable si l'URL est présente
                 if data.get("url"):
                     st.markdown(f"#### 📄 [{data['title']}]({data['url']})")
                 else:
