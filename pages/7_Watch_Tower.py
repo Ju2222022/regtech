@@ -149,6 +149,22 @@ def main():
                         markets=countries,
                         timeframe_label=selected_timeframe
                     )
+
+                    new_db = {}
+                    for idx, entry in enumerate(live_entries):
+                        sig_id = f"sig_{datetime.now().strftime('%H%M%S')}_{idx}"
+                        new_db[sig_id] = {
+                            "title": entry.get("title", "Untitled Signal"),
+                            "url": entry.get("url", ""),
+                            "market": ", ".join(entry.get("markets", countries)),
+                            "categories": categories_to_scan,
+                            "source": entry.get("source", "Web Search"),
+                            "date": entry.get("date", datetime.now().strftime("%Y-%m-%d")),
+                            "summary": entry.get("summary", "No summary provided."),
+                            "impact": entry.get("impact_prediction", "Impact assessment required."),
+                            "status": "inbox",
+                            "priority": entry.get("urgency", "low").lower()
+                        }
                     
                     new_db = {}
                     for idx, entry in enumerate(live_entries):
