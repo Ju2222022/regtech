@@ -1,0 +1,66 @@
+{
+    "metadata": {
+        "perimeter": "Electronics",
+        "category": "Battery and accumulators",
+        "sub_category": "Portable batteries",
+        "market": "EU",
+        "last_updated": "2026-08-14 17:00:00",
+        "owner": "Julien"
+    },
+    "identity": {
+        "definition": "Portable secondary (rechargeable) batteries and lithium-ion cells integrated into sports electronics and connected devices.",
+        "hs_codes": "8507.60.00"
+    },
+    "requirements": [
+        {
+            "Type": "Chemical",
+            "Parameter": "Cadmium (Cd) & Mercury (Hg)",
+            "Limit": "Cd < 0.002% ; Hg < 0.0005%",
+            "Reference": "EU Battery Regulation 2023/1542"
+        },
+        {
+            "Type": "Safety",
+            "Parameter": "Transport Safety Requirements",
+            "Limit": "Pass all tests (T1-T8)",
+            "Reference": "UN 38.3 & EN IEC 62281"
+        },
+        {
+            "Type": "Mechanical",
+            "Parameter": "Removability & Replaceability",
+            "Limit": "Must be removable by end-user or independent professional",
+            "Reference": "EU Battery Regulation 2023/1542 (Art. 11)"
+        }
+    ],
+    "markings": [
+        {
+            "Placement": "On Product",
+            "Requirement": "Crossed-out wheeled bin",
+            "Description": "Printed visibly, legibly and indelibly with chemical symbol if over limits",
+            "Mandatory": true
+        },
+        {
+            "Placement": "On Product",
+            "Requirement": "Capacity Label",
+            "Description": "Visible expression of capacity (mAh/Wh)",
+            "Mandatory": true
+        },
+        {
+            "Placement": "On Product",
+            "Requirement": "CE Marking",
+            "Description": "Conformity marking (min 5mm)",
+            "Mandatory": true
+        }
+    ],
+    "documents": [
+        {
+            "Document": "UN 38.3 Test Summary",
+            "Description": "Summary report proving transport safety compliance",
+            "Retention": "10 years"
+        },
+        {
+            "Document": "EU Declaration of Conformity",
+            "Description": "Stating compliance with EU Battery Regulation 2023/1542 and related CE directives",
+            "Retention": "10 years"
+        }
+    ]
+}
