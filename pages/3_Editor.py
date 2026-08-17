@@ -64,17 +64,31 @@ def main():
     st.markdown("Manage your single source of truth for product compliance.")
 
     # ==========================================
+    # INTERCEPTION DU BROUILLON (AUTO-DRAFT)
+    # On le lit AVANT de créer les menus déroulants
+    # ==========================================
+    active_data = st.session_state.get("draft_update", None)
+    
+    draft_per = active_data["metadata"].get("perimeter") if active_data and "metadata" in active_data else None
+    draft_cat = active_data["metadata"].get("category") if active_data and "metadata" in active_data else None
+    draft_sub = active_data["metadata"].get("sub_category") if active_data and "metadata" in active_data else None
+    draft_mar = active_data["metadata"].get("market") if active_data and "metadata" in active_data else None
+
+    if active_data:
+        st.info(f"✨ **Auto-Draft Mode Active:** Reviewing updates for **{draft_sub}** | 🌍 **{draft_mar}**.")
+
+    # ==========================================
     # HEADER : DYNAMIC MATRIX SELECTION
     # ==========================================
     st.markdown("### 🎯 Card Selection")
     
     ontology_df = get_ontology_data()
-    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if 'perimeter' in ontology_df.columns else []
-        selected_perimeter = st.selectbox("Perimeter", all_perimeters, index=None, placeholder="Select Perimeter...")
+        def_idx = all_perimeters.index(draft_per) if draft_per in all_perimeters else None
+        selected_perimeter = st.selectbox("Perimeter", all_perimeters, index=def_idx, placeholder="Select Perimeter...")
         
     with col2:
         if selected_perimeter and 'perimeter' in ontology_df.columns:
@@ -83,7 +97,8 @@ def main():
             filtered_cats = pd.DataFrame()
             
         all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if 'category_label' in filtered_cats.columns else []
-        selected_category = st.selectbox("Category", all_categories, index=None, placeholder="Select Category...")
+        def_idx = all_categories.index(draft_cat) if draft_cat in all_categories else None
+        selected_category = st.selectbox("Category", all_categories, index=def_idx, placeholder="Select Category...")
         
     with col3:
         if selected_category and 'category_label' in filtered_cats.columns:
@@ -92,14 +107,15 @@ def main():
             filtered_subcats = pd.DataFrame()
             
         all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if 'sub_category_label' in filtered_subcats.columns else []
-        selected_subcategory = st.selectbox("Sub-Category", all_subcategories, index=None, placeholder="Select Sub-Category...")
+        def_idx = all_subcategories.index(draft_sub) if draft_sub in all_subcategories else None
+        selected_subcategory = st.selectbox("Sub-Category", all_subcategories, index=def_idx, placeholder="Select Sub-Category...")
 
     with col4:
         available_countries = get_active_countries()
-        selected_market = st.selectbox("Target Market", available_countries, index=None, placeholder="Select Market...")
+        def_idx = available_countries.index(draft_mar) if draft_mar in available_countries else None
+        selected_market = st.selectbox("Target Market", available_countries, index=def_idx, placeholder="Select Market...")
 
     matrix_is_complete = all([selected_perimeter, selected_category, selected_subcategory, selected_market])
-
     st.divider()
 
     # ==========================================
