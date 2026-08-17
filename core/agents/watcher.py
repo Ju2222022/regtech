@@ -75,7 +75,7 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
     Appel Gemini avec le modèle 8b (ultra-rapide) et support JSON natif.
     """
     # ⚡ Utilisation de gemini-1.5-flash-8b pour une vitesse d'exécution maximale et moins d'erreurs 503
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={gemini_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
     
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
