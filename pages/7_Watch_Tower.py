@@ -139,14 +139,18 @@ def main():
         if not (gemini_key and tavily_key):
             st.error("⚠️ API keys (Gemini & Tavily) missing in your secrets setup.")
         else:
-            with st.spinner(f"RegWatch AI is scanning the regulatory pool for the {selected_timeframe}..."):
+            with st.status(f"🚀 Initializing scan for {selected_timeframe}...", expanded=True) as status_box:
                 try:
+                    def update_status(message):
+                        status_box.update(label=message, state="running")
+
                     live_entries, usage = run_live_watch(
                         gemini_key=gemini_key,
                         tavily_key=tavily_key,
                         categories=categories_to_scan,
                         markets=countries,
-                        timeframe_label=selected_timeframe
+                        timeframe_label=selected_timeframe,
+                        status_callback=update_status
                     )
                     
                     new_db = {}
@@ -170,16 +174,16 @@ def main():
                         # Sauvegarde immédiate après un nouveau scan fructueux
                         save_signals(st.session_state.signals_db)
                         
-                        st.success(f"Scan complete! Found {len(new_db)} new signals.")
-                        
                         est_cost = (usage['input_tokens'] / 1_000_000 * 0.075) + (usage['output_tokens'] / 1_000_000 * 0.30)
                         st.session_state.last_kpi_cost = round(est_cost, 4)
+                        status_box.update(label=f"✅ Scan complete! Found {len(new_db)} new signals.", state="complete", expanded=False)
                     else:
-                        st.info(f"Scan completed. No new regulatory alerts found for this scope over the {selected_timeframe}.")
+                        status_box.update(label=f"ℹ️ Scan complete. No new regulatory alerts found for this scope.", state="complete", expanded=False)
                         
                     st.session_state.scan_executed = True
                     
                 except Exception as e:
+                    status_box.update(label="❌ Scan failed", state="error", expanded=True)
                     st.error(f"Scan failed: {str(e)}")
 
     # ==========================================
