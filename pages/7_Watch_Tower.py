@@ -38,26 +38,30 @@ except ImportError:
     st.error("Impossible de trouver les agents dans `core/agents/`.")
 
 # ==========================================
-# DATA LOADING
+# DATA LOADING (Single Source of Truth)
 # ==========================================
 @st.cache_data
 def get_active_countries():
+    """Récupère dynamiquement les marchés depuis le Regulatory Pool."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
         df = pd.read_csv(csv_path)
         if 'Geographic Zone' in df.columns:
+            # On retourne uniquement les zones uniques trouvées dans le fichier
             return sorted(df['Geographic Zone'].dropna().unique().tolist())
-        return ["EU", "France", "USA", "China", "UK", "Canada", "India"]
+        return [] # Plus de valeurs écrites en dur (exit le fallback "EU, France...")
     except Exception:
-        return ["EU", "France", "USA", "China", "UK", "Canada", "India"]
+        return [] # Retourne une liste vide en cas d'erreur de lecture
 
 @st.cache_data
 def get_ontology_data():
+    """Récupère dynamiquement l'arborescence depuis la Default Ontology."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
         return pd.read_csv(csv_path)
     except Exception:
-        return pd.DataFrame(columns=["perimeter", "category_label", "sub_category_label"])
+        # En cas d'erreur, on retourne un DataFrame vide mais avec tes colonnes exactes
+        return pd.DataFrame(columns=["category_id", "perimeter", "category_label", "sub_category_label"])
 
 # ==========================================
 # SESSION STATE INITIALIZATION
