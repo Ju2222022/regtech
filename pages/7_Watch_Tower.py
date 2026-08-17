@@ -33,6 +33,7 @@ def save_signals(data):
 try:
     from core.agents.watcher import run_live_watch
     from core.agents.impact import find_matching_legal_cards, analyze_gap_with_gemini
+    from core.agents.updater import generate_card_update # <-- Le petit nouveau
 except ImportError:
     st.error("Impossible de trouver les agents dans `core/agents/`.")
 
@@ -244,40 +245,55 @@ def main():
                         if not matched_cards:
                             st.warning("⚠️ No matching Legal Card found for this market/category. Please create one in the Editor to enable Gap Analysis.")
                         else:
-                            st.divider()
-                            for card_info in matched_cards:
-                                # Extraction propre des métadonnées pour l'affichage
-                                meta = card_info['data'].get('metadata', {})
-                                cat_display = meta.get('category', 'Unknown Category')
-                                subcat_display = meta.get('sub_category', '')
-                                market_display = meta.get('market', 'Unknown Market')
-                                
-                                # Construction du titre
-                                if subcat_display and subcat_display != "Unassigned":
-                                    ui_title = f"{cat_display} > {subcat_display} | 🌍 {market_display}"
-                                else:
-                                    ui_title = f"{cat_display} | 🌍 {market_display}"
-                                    
-                                st.markdown(f"#### 🔍 Gap Analysis : **{ui_title}**")
-                                # La variable gemini_key est récupérée plus haut dans main()
-                                result = analyze_gap_with_gemini(gemini_key, data, card_info['data'])
-                                
-                                # Affichage du statut
-                                if "Delta" in result.get('status', ''):
-                                    st.error(f"**Status:** {result.get('status')}")
-                                elif "Compliant" in result.get('status', ''):
-                                    st.success(f"**Status:** {result.get('status')}")
-                                else:
-                                    st.warning(f"**Status:** {result.get('status')}")
-                                
-                                # Affichage de l'analyse
-                                st.markdown(f"**Analysis:** {result.get('analysis')}")
-                                
-                                # Affichage des écarts (Gaps) s'il y en a
-                                if result.get('gaps'):
-                                    st.markdown("**Identified Gaps:**")
-                                    for gap in result.get('gaps'):
-                                        st.markdown(f"- **[{gap.get('type')}]** {gap.get('description')}")
+                            # On sauvegarde l'analyse dans la DB pour la garder affichée
+                            card_info = matched_cards[0]
+                            result = analyze_gap_with_gemini(gemini_key, data, card_info['data'])
+                            
+                            st.session_state.signals_db[sig_id]["gap_analysis"] = result
+                            st.session_state.signals_db[sig_id]["matched_card"] = card_info['data']
+                            save_signals(st.session_state.signals_db)
+
+                # AFFICHAGE DE L'ANALYSE ET DU BOUTON UPDATER (Si l'analyse a été faite)
+                if "gap_analysis" in data:
+                    st.divider()
+                    result = data["gap_analysis"]
+                    card_data = data["matched_card"]
+                    
+                    meta = card_data.get('metadata', {})
+                    cat_display = meta.get('category', 'Unknown Category')
+                    subcat_display = meta.get('sub_category', '')
+                    market_display = meta.get('market', 'Unknown Market')
+                    
+                    if subcat_display and subcat_display != "Unassigned":
+                        ui_title = f"{cat_display} > {subcat_display} | 🌍 {market_display}"
+                    else:
+                        ui_title = f"{cat_display} | 🌍 {market_display}"
+                        
+                    st.markdown(f"#### 🔍 Gap Analysis : **{ui_title}**")
+                    
+                    if "Delta" in result.get('status', ''):
+                        st.error(f"**Status:** {result.get('status')}")
+                    elif "Compliant" in result.get('status', ''):
+                        st.success(f"**Status:** {result.get('status')}")
+                    else:
+                        st.warning(f"**Status:** {result.get('status')}")
+                    
+                    st.markdown(f"**Analysis:** {result.get('analysis')}")
+                    
+                    if result.get('gaps'):
+                        st.markdown("**Identified Gaps:**")
+                        for gap in result.get('gaps'):
+                            st.markdown(f"- **[{gap.get('type')}]** {gap.get('description')}")
+                            
+                        # NOUVEAU BOUTON POUR GÉNÉRER LA MISE À JOUR
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if st.button("✨ Auto-Draft Update in Editor", key=f"draft_{sig_id}", type="primary"):
+                            with st.spinner("L'IA rédige la nouvelle fiche..."):
+                                updated_card = generate_card_update(gemini_key, card_data, result)
+                                # On place le brouillon en mémoire pour l'éditeur
+                                st.session_state.draft_update = updated_card
+                                # On bascule automatiquement l'utilisateur vers la page Editor
+                                st.switch_page("pages/3_Editor.py")
 
         with tab_inbox:
             inbox_signals = {k: v for k, v in st.session_state.signals_db.items() if v["status"] == "inbox"}
