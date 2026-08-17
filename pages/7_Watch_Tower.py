@@ -194,7 +194,7 @@ def main():
     # ==========================================
     # ZONE 2 : WATCH FEED (RESULTS)
     # ==========================================
-    if st.session_state.scan_executed or st.session_state.signals_db:
+    if True: # Always display the Watch Feed zone
         st.header("📋 2. Watch Feed", divider="blue")
         
         kpi1, kpi2, kpi3 = st.columns(3)
@@ -292,7 +292,7 @@ def main():
                         # NOUVEAU BOUTON POUR GÉNÉRER LA MISE À JOUR
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("✨ Auto-Draft Update in Editor", key=f"draft_{sig_id}", type="primary"):
-                            with st.spinner("L'IA rédige la nouvelle fiche..."):
+                            with st.spinner("AI is drafting the updated Legal Card..."):
                                 updated_card = generate_card_update(gemini_key, card_data, result)
                                 # On place le brouillon en mémoire pour l'éditeur
                                 st.session_state.draft_update = updated_card
