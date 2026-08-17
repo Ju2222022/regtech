@@ -308,8 +308,14 @@ def main():
 
         with tab_inbox:
             inbox_signals = {k: v for k, v in st.session_state.signals_db.items() if v["status"] == "inbox"}
-            if not inbox_signals:
+            
+            # Si la base de données est totalement vide (aucun scan jamais lancé)
+            if len(st.session_state.signals_db) == 0:
+                st.info("📡 Your watch feed is empty. Select your parameters in the Radar above and click 'Run Scan' to start tracking!")
+            # Si on a déjà des alertes mais qu'elles sont toutes traitées (Archive/Bookmark)
+            elif not inbox_signals:
                 st.success("🎉 Inbox Zero! No new regulatory signals to process.")
+                
             for sig_id, data in inbox_signals.items():
                 render_signal_card(sig_id, data)
 
