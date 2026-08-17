@@ -7,29 +7,25 @@ from datetime import datetime
 st.set_page_config(page_title="Legal Card Editor | RegWatch", page_icon="📝", layout="wide")
 
 # ==========================================
-# DATA LOADING (Single Source of Truth)
+# DATA LOADING
 # ==========================================
 @st.cache_data
 def get_active_countries():
-    """Récupère dynamiquement les marchés depuis le Regulatory Pool."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
         df = pd.read_csv(csv_path)
         if 'Geographic Zone' in df.columns:
-            # On retourne uniquement les zones uniques trouvées dans le fichier
             return sorted(df['Geographic Zone'].dropna().unique().tolist())
-        return [] # Plus de valeurs écrites en dur (exit le fallback "EU, France...")
+        return []
     except Exception:
-        return [] # Retourne une liste vide en cas d'erreur de lecture
+        return []
 
 @st.cache_data
 def get_ontology_data():
-    """Récupère dynamiquement l'arborescence depuis la Default Ontology."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
         return pd.read_csv(csv_path)
     except Exception:
-        # En cas d'erreur, on retourne un DataFrame vide mais avec tes colonnes exactes
         return pd.DataFrame(columns=["category_id", "perimeter", "category_label", "sub_category_label"])
 
 def generate_markdown_export(data_dict):
@@ -65,9 +61,10 @@ def main():
 
     # ==========================================
     # INTERCEPTION DU BROUILLON (AUTO-DRAFT)
-    # On le lit AVANT de créer les menus déroulants
     # ==========================================
-    active_data = st.session_state.get("draft_update", None)
+    draft_payload = st.session_state.get("draft_update", None)
+    active_data = draft_payload["card"] if draft_payload else None
+    analysis_data = draft_payload["analysis"] if draft_payload else None
     
     draft_per = active_data["metadata"].get("perimeter") if active_data and "metadata" in active_data else None
     draft_cat = active_data["metadata"].get("category") if active_data and "metadata" in active_data else None
@@ -75,7 +72,7 @@ def main():
     draft_mar = active_data["metadata"].get("market") if active_data and "metadata" in active_data else None
 
     if active_data:
-        st.info(f"✨ **Auto-Draft Mode Active:** Reviewing updates for **{draft_sub}** | 🌍 **{draft_mar}**.")
+        st.info(f"✨ **Auto-Draft Mode Active:** Reviewing updates for **{draft_sub}** | 🌍 **{draft_mar}**")
 
     # ==========================================
     # HEADER : DYNAMIC MATRIX SELECTION
@@ -124,21 +121,6 @@ def main():
     main_col, side_col = st.columns([3, 1], gap="large")
 
     with main_col:
-        # ==========================================
-        # INTERCEPTION DU BROUILLON (AUTO-DRAFT)
-        # ==========================================
-        active_data = None
-        if "draft_update" in st.session_state:
-            active_data = st.session_state.draft_update
-            st.info("✨ **Auto-Draft Mode Active:** Review and validate the changes suggested by RegWatch AI below.")
-            
-            if "metadata" in active_data:
-                selected_perimeter = active_data["metadata"].get("perimeter", selected_perimeter)
-                selected_category = active_data["metadata"].get("category", selected_category)
-                selected_subcategory = active_data["metadata"].get("sub_category", selected_subcategory)
-                selected_market = active_data["metadata"].get("market", selected_market)
-                
-        # --- SECTION 1: IDENTITY ---
         st.subheader("1. Identity & Scope")
         
         default_def = "Enter the official legal definition for this product category..."
@@ -153,9 +135,7 @@ def main():
         
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- SECTION 2: PRODUCT REQUIREMENTS ---
         st.subheader("2. Technical & Product Requirements")
-        
         default_req = [{"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": ""}]
         req_data = active_data.get("requirements", default_req) if active_data else default_req
         req_df_init = pd.DataFrame(req_data)
@@ -173,9 +153,7 @@ def main():
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- SECTION 3: MARKING & INFORMATION ---
         st.subheader("3. Marking & Information")
-        
         default_marking = [{"Placement": "On Product", "Requirement": "", "Description": "", "Mandatory": True}]
         marking_data = active_data.get("markings", default_marking) if active_data else default_marking
         marking_df_init = pd.DataFrame(marking_data)
@@ -193,9 +171,7 @@ def main():
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- SECTION 4: MARKET ACCESS & DOCS ---
         st.subheader("4. Conformity Documents & Access")
-        
         default_docs = [{"Document": "", "Description": "", "Retention": ""}]
         docs_data = active_data.get("documents", default_docs) if active_data else default_docs
         docs_df_init = pd.DataFrame(docs_data)
@@ -203,17 +179,6 @@ def main():
         docs_df_out = st.data_editor(docs_df_init, num_rows="dynamic", use_container_width=True, key="docs_editor")
         
         st.divider()
-
-        with st.expander("🕒 History", expanded=False):
-            owner_name = "Julien DLUBALA"
-            if active_data and "metadata" in active_data:
-                owner_name = active_data["metadata"].get("owner", owner_name)
-            st.markdown(f"* **{datetime.now().strftime('%Y-%m-%d')}** - {owner_name} - *Draft session.*")
-            
-        if active_data:
-            if st.button("🧹 Clear Auto-Draft & Reset"):
-                del st.session_state.draft_update
-                st.rerun()
 
     # ==========================================
     # BUILD DATA OBJECT (JSON)
@@ -240,9 +205,18 @@ def main():
     md_string = generate_markdown_export(legal_card_data)
 
     # ==========================================
-    # SIDE PANEL: Actions
+    # SIDE PANEL: Actions & Context
     # ==========================================
     with side_col:
+        # NOUVEAU: Panneau de contexte d'IA pour savoir quoi chercher !
+        if analysis_data:
+            with st.container(border=True):
+                st.markdown("### 🤖 AI Changes Summary")
+                st.caption("Cross-check these gaps with the tables on the left.")
+                for gap in analysis_data.get('gaps', []):
+                    st.markdown(f"**[{gap.get('type')}]** {gap.get('description')}")
+            st.divider()
+
         st.markdown("### 💾 Storage")
         
         can_save = matrix_is_complete or active_data is not None
@@ -270,9 +244,13 @@ def main():
                 
         if not can_save:
             st.caption("⚠️ Please select Perimeter, Category, Sub-Category, and Market to enable saving.")
+            
+        if active_data:
+            if st.button("🧹 Clear Auto-Draft & Reset", use_container_width=True):
+                del st.session_state.draft_update
+                st.rerun()
         
         st.divider()
-        
         st.markdown("### 📥 Export")
         safe_export_cat = str(selected_subcategory).replace(' ','_')
         safe_export_market = str(selected_market).replace(' ','_')
@@ -294,10 +272,6 @@ def main():
             use_container_width=True,
             disabled=not can_save
         )
-        
-        st.divider()
-        st.markdown("### 📡 Watch Tower Alerts")
-        st.info("✅ No active alerts for this specific Legal Card.")
 
 if __name__ == "__main__":
     main()
