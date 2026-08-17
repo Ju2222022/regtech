@@ -69,13 +69,13 @@ def get_ontology_context(category_name: str) -> dict:
         pass
     return context
 
-# ── Gemini API Calls (VERSION MODERNE 2026) ────────────────────────────────────
+# ── Gemini API Calls (MODÈLE OPTIMISÉ POUR LA VITESSE) ────────────────────────────────────
 def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_json: bool = False) -> dict:
     """
-    Appel Gemini avec le modèle de dernière génération et support JSON natif.
+    Appel Gemini avec le modèle 8b (ultra-rapide) et support JSON natif.
     """
-    # L'URL magique avec le modèle qui existe bien sur ton compte
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={gemini_key}"
+    # ⚡ Utilisation de gemini-1.5-flash-8b pour une vitesse d'exécution maximale et moins d'erreurs 503
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key={gemini_key}"
     
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
@@ -109,21 +109,21 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             
             if "candidates" not in data or not data["candidates"]:
                 if "promptFeedback" in data and data["promptFeedback"].get("blockReason"):
-                    raise Exception(f"Gemini a bloqué la requête : {data['promptFeedback']['blockReason']}")
-                raise Exception("Gemini n'a retourné aucun candidat (réponse vide)")
+                    raise Exception(f"Request blocked by Gemini: {data['promptFeedback']['blockReason']}")
+                raise Exception("Gemini returned no candidates (empty response)")
             
             candidate = data["candidates"][0]
             
             finish_reason = candidate.get("finishReason", "")
             if finish_reason == "SAFETY":
-                raise Exception("Réponse bloquée par les filtres de sécurité Gemini")
+                raise Exception("Response blocked by Gemini safety filters")
             
             if "content" not in candidate or "parts" not in candidate["content"]:
-                raise Exception("Structure de réponse Gemini invalide")
+                raise Exception("Invalid Gemini response structure")
             
             parts = candidate["content"]["parts"]
             if not parts or "text" not in parts[0]:
-                raise Exception("Gemini n'a retourné aucun texte")
+                raise Exception("Gemini returned no text")
             
             text_response = parts[0]["text"]
             usage = data.get("usageMetadata", {})
@@ -136,11 +136,11 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
-            error_msg = f"Gemini API refusée (Code {e.code}): {error_body}"
+            error_msg = f"Gemini API refused (Code {e.code}): {error_body}"
             
             if e.code in [429, 503] and attempt < MAX_RETRIES - 1:
                 wait_time = RETRY_DELAY * (attempt + 1)
-                print(f"⏳ Retry {attempt + 1}/{MAX_RETRIES} après {wait_time}s...")
+                print(f"⏳ Retry {attempt + 1}/{MAX_RETRIES} after {wait_time}s...")
                 time.sleep(wait_time)
                 continue
             
@@ -148,12 +148,12 @@ def call_gemini(gemini_key: str, system_prompt: str, user_prompt: str, force_jso
             
         except Exception as e:
             if attempt < MAX_RETRIES - 1:
-                print(f"⚠️ Erreur Gemini (tentative {attempt + 1}/{MAX_RETRIES}): {e}")
+                print(f"⚠️ Gemini error (attempt {attempt + 1}/{MAX_RETRIES}): {e}")
                 time.sleep(RETRY_DELAY)
                 continue
-            raise Exception(f"Erreur finale Gemini: {e}")
+            raise Exception(f"Final Gemini error: {e}")
     
-    raise Exception(f"Échec après {MAX_RETRIES} tentatives")
+    raise Exception(f"Failed after {MAX_RETRIES} attempts")
 
 def generate_smart_query(gemini_key: str, business_definition: str, fallback_category: str) -> str:
     if not business_definition: 
@@ -169,7 +169,7 @@ def generate_smart_query(gemini_key: str, business_definition: str, fallback_cat
             return fallback_category
         return query
     except Exception as e:
-        print(f"⚠️ Erreur génération query, fallback: {e}")
+        print(f"⚠️ Query generation error, using fallback: {e}")
         return fallback_category
 
 def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
@@ -184,13 +184,14 @@ def translate_topic(gemini_key: str, topic: str, target_lang: str) -> str:
         translated = result["text"].strip()
         return translated if translated else topic
     except Exception as e:
-        print(f"⚠️ Erreur traduction, utilisation de l'original: {e}")
+        print(f"⚠️ Translation error, using original: {e}")
         return topic
 
 def extract_regulatory_entries(gemini_key: str, topic_en: str, search_results: list, markets: list, business_definition: str, strict_attributes: str) -> tuple:
-    MAX_RESULTS = 15
+    # ⚡ Réduction à 5 résultats maximum pour accélérer la lecture de l'IA
+    MAX_RESULTS = 5
     if len(search_results) > MAX_RESULTS:
-        print(f"⚠️ Limitation à {MAX_RESULTS} résultats (sur {len(search_results)})")
+        print(f"⚠️ Limiting to {MAX_RESULTS} results (out of {len(search_results)})")
         search_results = search_results[:MAX_RESULTS]
     
     system_prompt = f"""You are Agent 1, a regulatory intelligence extractor. Always output in English.
@@ -240,29 +241,29 @@ STRICT RULES:
         raw_text = raw_text.strip()
         
         if not raw_text:
-            print("⚠️ Gemini a retourné une chaîne vide")
+            print("⚠️ Gemini returned an empty string")
             return [], {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
         
         try:
             entries = json.loads(raw_text)
         except json.JSONDecodeError as e:
-            print(f"⚠️ JSON invalide de Gemini: {e}")
+            print(f"⚠️ Invalid JSON from Gemini: {e}")
             return [], {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
         
         if not isinstance(entries, list):
-            print(f"⚠️ Gemini n'a pas retourné une liste: {type(entries)}")
+            print(f"⚠️ Gemini did not return a list: {type(entries)}")
             entries = []
             
         return entries, {"input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"]}
         
     except Exception as e:
-            raise Exception(f"Erreur de l'IA Gemini lors de l'analyse : {str(e)}")
+            raise Exception(f"Gemini AI error during analysis: {str(e)}")
 
 # ── Routing: Web Search (Tavily) ───────────────────────────────────────────────
 def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dict = None) -> list:
     def _call(payload_dict: dict) -> list:
         req = urllib.request.Request(
-            "https://api.tavily.com/search",
+            "[https://api.tavily.com/search](https://api.tavily.com/search)",
             data=json.dumps(payload_dict).encode("utf-8"),
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {tavily_key}"},
             method="POST"
@@ -271,34 +272,37 @@ def search_tavily(tavily_key: str, query: str, domains: list, timeframe_cfg: dic
             return json.loads(resp.read()).get("results", [])
 
     time_params = {"time_range": timeframe_cfg["time_range"]} if timeframe_cfg and "time_range" in timeframe_cfg else {}
-    base = {"query": query, "search_depth": "advanced", "max_results": 10, "include_raw_content": False, **time_params}
+    # ⚡ Réduction de max_results à 5 pour alléger la charge
+    base = {"query": query, "search_depth": "advanced", "max_results": 5, "include_raw_content": False, **time_params}
     
     results = []
     if domains:
         try: 
             results = _call({**base, "include_domains": domains})
         except Exception as e:
-            print(f"⚠️ Recherche sur domaines spécifiques échouée: {e}")
+            print(f"⚠️ Domain-specific search failed: {e}")
             
     if not results:
         try: 
             results = _call(base)
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
-            raise Exception(f"Tavily API refusée (Code {e.code}): {error_body}")
+            raise Exception(f"Tavily API refused (Code {e.code}): {error_body}")
         except Exception as e:
-            raise Exception(f"Erreur Tavily: {e}")
+            raise Exception(f"Tavily error: {e}")
 
     return [{"title": r.get("title", "No title"), "url": r.get("url", ""), "content": r.get("content", "")[:1000]} for r in results]
 
 # ── Main Run Function ──────────────────────────────────────────────────────────
-def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, timeframe_label: str = "📅 Last 12 months") -> tuple:
+def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: list, timeframe_label: str = "📅 Last 12 months", status_callback=None) -> tuple:
     timeframe_cfg = TIMEFRAMES.get(timeframe_label, {"time_range": "year"})
     main_category = categories[0] if categories else "regulatory compliance"
     
+    if status_callback: status_callback(f"🔍 Analyzing category: {main_category}")
     print(f"🔍 Analyse pour: {main_category} | Marchés: {markets}")
     ontology_context = get_ontology_context(main_category)
     
+    if status_callback: status_callback("🧠 Generating smart SEO query...")
     if ontology_context["keywords"] != main_category:
         base_query = ontology_context["keywords"]
     else:
@@ -311,6 +315,7 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
     for market in markets:
+        if status_callback: status_callback(f"🌍 Searching the web for {market}...")
         print(f"\n🌍 Recherche pour {market}...")
         market_lang = get_market_language(market)
         sources = get_market_sources([market])
@@ -322,13 +327,15 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
             market_results = search_tavily(tavily_key, target_query, web_domains, timeframe_cfg)
             all_raw_results.extend(market_results)
         except Exception as e:
-            raise Exception(f"Erreur API Tavily sur le marché {market} : {str(e)}")
+            raise Exception(f"Tavily API error on market {market} : {str(e)}")
         
     if not all_raw_results:
-        raise Exception(f"Tavily a bien fonctionné, mais a trouvé 0 résultat pour la requête : '{search_query}'.")
+        raise Exception(f"Tavily worked fine, but found 0 results for the query: '{search_query}'.")
 
     unique_urls = set()
     filtered_results = [r for r in all_raw_results if r['url'] not in unique_urls and not unique_urls.add(r['url'])]
+    
+    if status_callback: status_callback(f"🤖 Extracting regulatory insights from {len(filtered_results)} sources...")
     print(f"\n📊 {len(filtered_results)} résultats uniques à analyser par Gemini...")
 
     extracted_entries, usage = extract_regulatory_entries(gemini_key, search_query, filtered_results, markets, ontology_context["definition"], ontology_context["strict_attributes"])
@@ -337,6 +344,7 @@ def run_live_watch(gemini_key: str, tavily_key: str, categories: list, markets: 
     total_usage["output_tokens"] += usage["output_tokens"]
     print(f"✅ {len(extracted_entries)} entrées extraites")
 
+    if status_callback: status_callback("🧹 Deduplicating and formatting alerts...")
     seen_titles = []
     unique_entries = []
     for entry in extracted_entries:
