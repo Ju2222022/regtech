@@ -242,7 +242,19 @@ def main():
                         else:
                             st.divider()
                             for card_info in matched_cards:
-                                st.markdown(f"#### 🔍 Gap Analysis vs. `{card_info['filename']}`")
+                                # Extraction propre des métadonnées pour l'affichage
+                                meta = card_info['data'].get('metadata', {})
+                                cat_display = meta.get('category', 'Unknown Category')
+                                subcat_display = meta.get('sub_category', '')
+                                market_display = meta.get('market', 'Unknown Market')
+                                
+                                # Construction du titre
+                                if subcat_display and subcat_display != "Unassigned":
+                                    ui_title = f"{cat_display} > {subcat_display} | 🌍 {market_display}"
+                                else:
+                                    ui_title = f"{cat_display} | 🌍 {market_display}"
+                                    
+                                st.markdown(f"#### 🔍 Gap Analysis : **{ui_title}**")
                                 # La variable gemini_key est récupérée plus haut dans main()
                                 result = analyze_gap_with_gemini(gemini_key, data, card_info['data'])
                                 
