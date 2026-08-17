@@ -11,18 +11,15 @@ from datetime import datetime
 DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'signals_state.json')
 
 def load_signals():
-    """Charge la base de données des alertes depuis le fichier JSON."""
     if os.path.exists(DB_PATH):
         try:
             with open(DB_PATH, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            return {} # Retourne un dictionnaire vide si le fichier est corrompu
-    return {} # Retourne un dictionnaire vide si le fichier n'existe pas encore
+            return {}
+    return {}
 
 def save_signals(data):
-    """Sauvegarde la base de données dans le fichier JSON de manière lisible."""
-    # S'assure que le dossier data existe
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with open(DB_PATH, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
@@ -33,7 +30,7 @@ def save_signals(data):
 try:
     from core.agents.watcher import run_live_watch
     from core.agents.impact import find_matching_legal_cards, analyze_gap_with_gemini
-    from core.agents.updater import generate_card_update # <-- Le petit nouveau
+    from core.agents.updater import generate_card_update
 except ImportError:
     st.error("Impossible de trouver les agents dans `core/agents/`.")
 
@@ -42,25 +39,21 @@ except ImportError:
 # ==========================================
 @st.cache_data
 def get_active_countries():
-    """Récupère dynamiquement les marchés depuis le Regulatory Pool."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
         df = pd.read_csv(csv_path)
         if 'Geographic Zone' in df.columns:
-            # On retourne uniquement les zones uniques trouvées dans le fichier
             return sorted(df['Geographic Zone'].dropna().unique().tolist())
-        return [] # Plus de valeurs écrites en dur (exit le fallback "EU, France...")
+        return [] 
     except Exception:
-        return [] # Retourne une liste vide en cas d'erreur de lecture
+        return [] 
 
 @st.cache_data
 def get_ontology_data():
-    """Récupère dynamiquement l'arborescence depuis la Default Ontology."""
     try:
         csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
         return pd.read_csv(csv_path)
     except Exception:
-        # En cas d'erreur, on retourne un DataFrame vide mais avec tes colonnes exactes
         return pd.DataFrame(columns=["category_id", "perimeter", "category_label", "sub_category_label"])
 
 # ==========================================
@@ -70,16 +63,13 @@ if "scan_executed" not in st.session_state:
     st.session_state.scan_executed = False
 
 if "signals_db" not in st.session_state:
-    # Chargement depuis le fichier JSON au lieu de démarrer à vide
     st.session_state.signals_db = load_signals()
     
 if "last_kpi_cost" not in st.session_state:
     st.session_state.last_kpi_cost = 0.0
 
 def update_signal_status(sig_id, new_status):
-    # Mise à jour en mémoire vive
     st.session_state.signals_db[sig_id]["status"] = new_status
-    # Sauvegarde immédiate sur le disque dur
     save_signals(st.session_state.signals_db)
 
 # ==========================================
@@ -89,7 +79,6 @@ def main():
     st.title("📡 Watch Tower")
     st.markdown("Automated regulatory scanning and gap analysis.")
 
-    # --- HIERARCHICAL FILTERS ---
     st.header("🎯 1. Radar", divider="blue")
     
     ontology_df = get_ontology_data()
@@ -133,7 +122,6 @@ def main():
 
     selected_timeframe = st.selectbox("Timeframe (Search Depth)", ["⚡ Last 7 days", "⚡ Last 30 days", "📅 Last 12 months"], index=2)
         
-    # On récupère les clés depuis la session (onglet Settings ou Secrets)
     gemini_key = st.secrets.get("GEMINI_API_KEY", "")
     tavily_key = st.secrets.get("TAVILY_API_KEY", "")
     
@@ -176,7 +164,6 @@ def main():
                     
                     if new_db:
                         st.session_state.signals_db.update(new_db)
-                        # Sauvegarde immédiate après un nouveau scan fructueux
                         save_signals(st.session_state.signals_db)
                         
                         est_cost = (usage['input_tokens'] / 1_000_000 * 0.075) + (usage['output_tokens'] / 1_000_000 * 0.30)
@@ -208,7 +195,6 @@ def main():
 
         def render_signal_card(sig_id, data):
             with st.container(border=True):
-                # Rendu du titre cliquable si l'URL est présente
                 if data.get("url"):
                     st.markdown(f"#### 📄 [{data['title']}]({data['url']})")
                 else:
@@ -226,7 +212,6 @@ def main():
                 
                 col_a, col_b, col_c, col_d = st.columns([2, 2, 1, 1])
                 with col_a:
-                    # On capture le clic du bouton
                     assess_clicked = st.button("📝 Assess Impact", key=f"assess_{sig_id}", type="primary", use_container_width=True)
                 with col_b:
                     st.button("💬 Chat with Assistant", key=f"chat_{sig_id}", use_container_width=True)
@@ -241,7 +226,7 @@ def main():
                     else:
                         st.button("📥 To Inbox", key=f"inbox_restore_{sig_id}", use_container_width=True, on_click=update_signal_status, args=(sig_id, "inbox"))
 
-                # LOGIQUE D'ANALYSE D'IMPACT DÉCLENCHÉE PAR LE BOUTON
+                # LOGIQUE D'ANALYSE MULTI-FICHES
                 if assess_clicked:
                     with st.spinner("Analyzing impact against internal Legal Cards..."):
                         matched_cards = find_matching_legal_cards(data)
@@ -249,19 +234,37 @@ def main():
                         if not matched_cards:
                             st.warning("⚠️ No matching Legal Card found for this market/category. Please create one in the Editor to enable Gap Analysis.")
                         else:
-                            # On sauvegarde l'analyse dans la DB pour la garder affichée
-                            card_info = matched_cards[0]
-                            result = analyze_gap_with_gemini(gemini_key, data, card_info['data'])
+                            analyses_list = []
+                            for card_info in matched_cards:
+                                result = analyze_gap_with_gemini(gemini_key, data, card_info['data'])
+                                analyses_list.append({
+                                    "card": card_info['data'],
+                                    "analysis": result
+                                })
                             
-                            st.session_state.signals_db[sig_id]["gap_analysis"] = result
-                            st.session_state.signals_db[sig_id]["matched_card"] = card_info['data']
+                            st.session_state.signals_db[sig_id]["gap_analyses"] = analyses_list
                             save_signals(st.session_state.signals_db)
 
-                # AFFICHAGE DE L'ANALYSE ET DU BOUTON UPDATER (Si l'analyse a été faite)
-                if "gap_analysis" in data:
+                # AFFICHAGE DE L'ANALYSE (Sélecteur si multiples)
+                if "gap_analyses" in data and data["gap_analyses"]:
                     st.divider()
-                    result = data["gap_analysis"]
-                    card_data = data["matched_card"]
+                    analyses_list = data["gap_analyses"]
+                    selected_idx = 0
+                    
+                    if len(analyses_list) > 1:
+                        st.markdown("### 🗂️ Multiple Legal Cards Impacted")
+                        options = []
+                        for idx, item in enumerate(analyses_list):
+                            meta = item['card'].get('metadata', {})
+                            opt_label = f"{meta.get('category', 'Unknown')} > {meta.get('sub_category', 'Unknown')} | 🌍 {meta.get('market', '')}"
+                            options.append(opt_label)
+                        
+                        selected_option = st.selectbox("Select which Legal Card to review and update:", options, key=f"sel_card_{sig_id}")
+                        selected_idx = options.index(selected_option)
+                    
+                    selected_gap = analyses_list[selected_idx]
+                    result = selected_gap["analysis"]
+                    card_data = selected_gap["card"]
                     
                     meta = card_data.get('metadata', {})
                     cat_display = meta.get('category', 'Unknown Category')
@@ -289,15 +292,19 @@ def main():
                         for gap in result.get('gaps'):
                             st.markdown(f"- **[{gap.get('type')}]** {gap.get('description')}")
                             
-                        # NOUVEAU BOUTON POUR GÉNÉRER LA MISE À JOUR
                         st.markdown("<br>", unsafe_allow_html=True)
-                        if st.button("✨ Auto-Draft Update in Editor", key=f"draft_{sig_id}", type="primary"):
+                        if st.button("✨ Auto-Draft Update in Editor", key=f"draft_{sig_id}_{selected_idx}", type="primary"):
                             with st.spinner("AI is drafting the updated Legal Card..."):
-                                updated_card = generate_card_update(gemini_key, card_data, result)
-                                # On place le brouillon en mémoire pour l'éditeur
-                                st.session_state.draft_update = updated_card
-                                # On bascule automatiquement l'utilisateur vers la page Editor
-                                st.switch_page("pages/3_Editor.py")
+                                try:
+                                    updated_card = generate_card_update(gemini_key, card_data, result)
+                                    # NOUVEAU: On envoie le JSON modifié ET l'analyse pour le contexte
+                                    st.session_state.draft_update = {
+                                        "card": updated_card,
+                                        "analysis": result
+                                    }
+                                    st.switch_page("pages/3_Editor.py")
+                                except Exception as e:
+                                    st.error(f"❌ Gemini API Error during drafting: {str(e)}. Please try again in a few seconds.")
 
         with tab_inbox:
             inbox_signals = {k: v for k, v in st.session_state.signals_db.items() if v["status"] == "inbox"}
