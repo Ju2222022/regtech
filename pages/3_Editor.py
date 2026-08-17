@@ -73,7 +73,6 @@ def main():
         selected_perimeter = st.selectbox("Perimeter", all_perimeters, index=None, placeholder="Select Perimeter...")
         
     with col2:
-        # Cascade logic: Only show categories if perimeter is selected
         if selected_perimeter and 'perimeter' in ontology_df.columns:
             filtered_cats = ontology_df[ontology_df['perimeter'] == selected_perimeter]
         else:
@@ -83,7 +82,6 @@ def main():
         selected_category = st.selectbox("Category", all_categories, index=None, placeholder="Select Category...")
         
     with col3:
-        # Cascade logic: Only show sub-categories if category is selected
         if selected_category and 'category_label' in filtered_cats.columns:
             filtered_subcats = filtered_cats[filtered_cats['category_label'] == selected_category]
         else:
@@ -96,7 +94,6 @@ def main():
         available_countries = get_active_countries()
         selected_market = st.selectbox("Target Market", available_countries, index=None, placeholder="Select Market...")
 
-    # Check if matrix is complete
     matrix_is_complete = all([selected_perimeter, selected_category, selected_subcategory, selected_market])
 
     st.divider()
@@ -107,16 +104,42 @@ def main():
     main_col, side_col = st.columns([3, 1], gap="large")
 
     with main_col:
+        # ==========================================
+        # INTERCEPTION DU BROUILLON (AUTO-DRAFT)
+        # ==========================================
+        active_data = None
+        if "draft_update" in st.session_state:
+            active_data = st.session_state.draft_update
+            st.info("✨ **Auto-Draft Mode Active:** Review and validate the changes suggested by RegWatch AI below.")
+            
+            if "metadata" in active_data:
+                selected_perimeter = active_data["metadata"].get("perimeter", selected_perimeter)
+                selected_category = active_data["metadata"].get("category", selected_category)
+                selected_subcategory = active_data["metadata"].get("sub_category", selected_subcategory)
+                selected_market = active_data["metadata"].get("market", selected_market)
+                
         # --- SECTION 1: IDENTITY ---
         st.subheader("1. Identity & Scope")
-        product_def = st.text_area("Product Legal Definition", "Enter the official legal definition for this product category...", height=80)
-        hs_codes = st.text_input("Covered HS Codes (Customs)", "Ex: 8527.13.00, 8519.81.00")
+        
+        default_def = "Enter the official legal definition for this product category..."
+        default_hs = "Ex: 8527.13.00, 8519.81.00"
+        
+        if active_data and "identity" in active_data:
+            default_def = active_data["identity"].get("definition", default_def)
+            default_hs = active_data["identity"].get("hs_codes", default_hs)
+
+        product_def = st.text_area("Product Legal Definition", default_def, height=80)
+        hs_codes = st.text_input("Covered HS Codes (Customs)", default_hs)
         
         st.markdown("<br>", unsafe_allow_html=True)
 
         # --- SECTION 2: PRODUCT REQUIREMENTS ---
         st.subheader("2. Technical & Product Requirements")
-        req_df_init = pd.DataFrame([{"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": ""}])
+        
+        default_req = [{"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": ""}]
+        req_data = active_data.get("requirements", default_req) if active_data else default_req
+        req_df_init = pd.DataFrame(req_data)
+        
         req_df_out = st.data_editor(
             req_df_init,
             column_config={
@@ -132,7 +155,11 @@ def main():
 
         # --- SECTION 3: MARKING & INFORMATION ---
         st.subheader("3. Marking & Information")
-        marking_df_init = pd.DataFrame([{"Placement": "On Product", "Requirement": "", "Description": "", "Mandatory": True}])
+        
+        default_marking = [{"Placement": "On Product", "Requirement": "", "Description": "", "Mandatory": True}]
+        marking_data = active_data.get("markings", default_marking) if active_data else default_marking
+        marking_df_init = pd.DataFrame(marking_data)
+        
         marking_df_out = st.data_editor(
             marking_df_init,
             column_config={
@@ -148,13 +175,25 @@ def main():
 
         # --- SECTION 4: MARKET ACCESS & DOCS ---
         st.subheader("4. Conformity Documents & Access")
-        docs_df_init = pd.DataFrame([{"Document": "", "Description": "", "Retention": ""}])
+        
+        default_docs = [{"Document": "", "Description": "", "Retention": ""}]
+        docs_data = active_data.get("documents", default_docs) if active_data else default_docs
+        docs_df_init = pd.DataFrame(docs_data)
+        
         docs_df_out = st.data_editor(docs_df_init, num_rows="dynamic", use_container_width=True, key="docs_editor")
         
         st.divider()
 
         with st.expander("🕒 History", expanded=False):
-            st.markdown(f"* **{datetime.now().strftime('%Y-%m-%d')}** - Julien Dlubala - *Draft session.*")
+            owner_name = "Julien DLUBALA"
+            if active_data and "metadata" in active_data:
+                owner_name = active_data["metadata"].get("owner", owner_name)
+            st.markdown(f"* **{datetime.now().strftime('%Y-%m-%d')}** - {owner_name} - *Draft session.*")
+            
+        if active_data:
+            if st.button("🧹 Clear Auto-Draft & Reset"):
+                del st.session_state.draft_update
+                st.rerun()
 
     # ==========================================
     # BUILD DATA OBJECT (JSON)
@@ -166,7 +205,7 @@ def main():
             "sub_category": selected_subcategory or "Unassigned",
             "market": selected_market or "Unassigned",
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "owner": "Julien Dlubala"
+            "owner": "Julien DLUBALA"
         },
         "identity": {
             "definition": product_def,
@@ -186,12 +225,14 @@ def main():
     with side_col:
         st.markdown("### 💾 Storage")
         
-        if st.button("Save to Internal Database", type="primary", use_container_width=True, disabled=not matrix_is_complete):
+        can_save = matrix_is_complete or active_data is not None
+        
+        if st.button("Save to Internal Database", type="primary", use_container_width=True, disabled=not can_save):
             try:
                 save_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'legal_cards')
                 os.makedirs(save_dir, exist_ok=True)
                 
-                safe_cat = str(selected_category).replace(" ", "_").replace("/", "-")
+                safe_cat = str(selected_subcategory).replace(" ", "_").replace("/", "-")
                 safe_market = str(selected_market).replace(" ", "_").replace("/", "-")
                 filename = f"{safe_cat}_{safe_market}.json"
                 file_path = os.path.join(save_dir, filename)
@@ -200,31 +241,38 @@ def main():
                     f.write(json_string)
                 
                 st.success(f"File saved: `{filename}`")
+                
+                if "draft_update" in st.session_state:
+                    del st.session_state.draft_update
+                    
             except Exception as e:
                 st.error(f"Save failed: {str(e)}")
                 
-        if not matrix_is_complete:
+        if not can_save:
             st.caption("⚠️ Please select Perimeter, Category, Sub-Category, and Market to enable saving.")
         
         st.divider()
         
         st.markdown("### 📥 Export")
+        safe_export_cat = str(selected_subcategory).replace(' ','_')
+        safe_export_market = str(selected_market).replace(' ','_')
+        
         st.download_button(
             label="Download JSON Data",
             data=json_string,
-            file_name=f"LegalCard_{str(selected_category).replace(' ','_')}_{str(selected_market).replace(' ','_')}.json",
+            file_name=f"LegalCard_{safe_export_cat}_{safe_export_market}.json",
             mime="application/json",
             use_container_width=True,
-            disabled=not matrix_is_complete
+            disabled=not can_save
         )
         
         st.download_button(
             label="Download Text (Markdown)",
             data=md_string,
-            file_name=f"LegalCard_{str(selected_category).replace(' ','_')}_{str(selected_market).replace(' ','_')}.md",
+            file_name=f"LegalCard_{safe_export_cat}_{safe_export_market}.md",
             mime="text/markdown",
             use_container_width=True,
-            disabled=not matrix_is_complete
+            disabled=not can_save
         )
         
         st.divider()
