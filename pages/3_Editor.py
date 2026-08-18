@@ -144,7 +144,7 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
 
         st.subheader("2. Technical & Product Requirements")
-        default_req = [{"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": ""}]
+        default_req = [{"Type": "Chemical", "Parameter": "", "Limit": "", "Reference": "", "Source_Link": ""}]
         req_data = active_data.get("requirements", default_req) if active_data else default_req
         req_df_init = pd.DataFrame(req_data)
         
@@ -154,7 +154,8 @@ def main():
                 "Type": st.column_config.SelectboxColumn("Requirement Type", options=["Chemical", "Mechanical", "Electrical", "Radio", "Environmental", "Safety", "Other"], required=True),
                 "Parameter": st.column_config.TextColumn("Parameter / Substance", required=True),
                 "Limit": st.column_config.TextColumn("Limit / Target", required=True),
-                "Reference": st.column_config.TextColumn("Regulatory Reference")
+                "Reference": st.column_config.TextColumn("Regulatory Reference"),
+                "Source_Link": st.column_config.LinkColumn("Source Link (URL)", display_text="🔗 View Source")
             },
             num_rows="dynamic", use_container_width=True, key="req_editor"
         )
@@ -180,11 +181,20 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
 
         st.subheader("4. Conformity Documents & Access")
-        default_docs = [{"Document": "", "Description": "", "Retention": ""}]
+        default_docs = [{"Document": "", "Description": "", "Retention": "", "Source_Link": ""}]
         docs_data = active_data.get("documents", default_docs) if active_data else default_docs
         docs_df_init = pd.DataFrame(docs_data)
         
-        docs_df_out = st.data_editor(docs_df_init, num_rows="dynamic", use_container_width=True, key="docs_editor")
+        docs_df_out = st.data_editor(
+            docs_df_init, 
+            column_config={
+                "Document": st.column_config.TextColumn("Document", required=True),
+                "Description": st.column_config.TextColumn("Description"),
+                "Retention": st.column_config.TextColumn("Retention Period"),
+                "Source_Link": st.column_config.LinkColumn("Source Link (URL)", display_text="🔗 View Source")
+            },
+            num_rows="dynamic", use_container_width=True, key="docs_editor"
+        )
         
         st.divider()
 
