@@ -121,7 +121,7 @@ def main():
                             st.divider()
                             col_edit, col_dup, col_del, _ = st.columns([1, 1, 1, 4])
                             with col_edit:
-                                if st.button("✏️ Modify", key=f"edit_{cat_id}_{nom_de_la_sous_categorie}"):
+                                if st.button("✏️ Modify", key=f"edit_{cat_id}_{label}"):
 # ou simplement utiliser un compteur si tu utilises un enumerate()
                                     st.session_state["editing_category"] = cat_id
                                     st.rerun()
