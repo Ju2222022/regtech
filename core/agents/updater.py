@@ -1,7 +1,7 @@
 import json
 from core.agents.watcher import call_gemini
 
-def generate_card_update(gemini_key: str, legal_card: dict, gap_analysis: dict) -> dict:
+def generate_card_update(gemini_key: str, legal_card: dict, gap_analysis: dict, signal_url: str = "") -> dict:
     """
     Prend une Legal Card existante et y intègre les nouveaux écarts identifiés par l'analyse d'impact.
     Retourne la nouvelle structure JSON mise à jour.
@@ -11,17 +11,20 @@ Your task is to UPDATE an existing product compliance Legal Card (JSON) based on
 
 --- INSTRUCTIONS ---
 1. Read the provided EXISTING LEGAL CARD.
-2. Read the GAP ANALYSIS IDENTIFIED GAPS.
+2. Read the GAP ANALYSIS IDENTIFIED GAPS and the SIGNAL URL provided below.
 3. Integrate the missing requirements, markings, or documents into the respective arrays ("requirements", "markings", "documents").
 4. Assign logical values for "Type", "Parameter", "Limit", and "Reference" based on the gap description.
-5. Do NOT modify the 'metadata' or 'identity' sections. Keep them exactly as they are.
-6. Maintain the EXACT SAME JSON SCHEMA.
+5. NEW RULE: For ANY new row you add to 'requirements' or 'documents', you MUST add a new key called "Source_Link" and set its value to the SIGNAL URL provided.
+6. Do NOT modify the 'metadata' or 'identity' sections. Keep them exactly as they are.
+7. ALL TEXT GENERATED MUST BE STRICTLY IN ENGLISH. No French.
+8. Maintain the EXACT SAME JSON SCHEMA.
 
 --- OUTPUT FORMAT ---
 You must output STRICTLY valid JSON representing the fully updated Legal Card. Do not add any conversational text."""
 
     # On prépare le contexte pour l'IA
-    user_prompt = f"=== EXISTING LEGAL CARD ===\n{json.dumps(legal_card, indent=2)}\n\n"
+    user_prompt = f"=== SIGNAL URL (To use for Source_Link) ===\n{signal_url if signal_url else 'No URL provided'}\n\n"
+    user_prompt += f"=== EXISTING LEGAL CARD ===\n{json.dumps(legal_card, indent=2)}\n\n"
     user_prompt += f"=== IDENTIFIED GAPS TO INTEGRATE ===\n{json.dumps(gap_analysis.get('gaps', []), indent=2)}\n"
 
     try:
