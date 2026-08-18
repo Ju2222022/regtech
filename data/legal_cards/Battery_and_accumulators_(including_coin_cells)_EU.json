@@ -1,11 +1,11 @@
 {
     "metadata": {
-        "perimeter": "Electronics",
-        "category": "Battery and accumulators",
-        "sub_category": "Portable batteries",
+        "perimeter": "J. DL",
+        "category": "Electronics & Measuring devices",
+        "sub_category": "Battery and accumulators (including component)",
         "market": "EU",
         "last_updated": "2026-08-14 17:00:00",
-        "owner": "Julien"
+        "owner": "Julien DLUBALA"
     },
     "identity": {
         "definition": "Portable secondary (rechargeable) batteries and lithium-ion cells integrated into sports electronics and connected devices.",
