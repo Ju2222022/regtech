@@ -126,7 +126,7 @@ def main():
                                     st.session_state["editing_category"] = cat_id
                                     st.rerun()
                             with col_dup:
-                                if st.button("📑 Duplicate", key=f"dup_{cat_id}"):
+                                if st.button("📑 Duplicate", key=f"dup_{cat_id}_{label}"):
                                     new_cat = copy.deepcopy(cat)
                                     new_cat["category_id"] = f"{cat_id}_COPY"
                                     new_cat["category_label"] = f"{label} (Copy)"
@@ -135,7 +135,7 @@ def main():
                                     else:
                                         st.error("A copy already exists. Please modify its ID first before duplicating again.")
                             with col_del:
-                                if st.button("🗑️ Delete", key=f"del_{cat_id}", type="primary"):
+                                if st.button("🗑️ Delete", key=f"del_{cat_id}_{label}", type="primary"):
                                     if ref_manager.delete_category(cat_id):
                                         st.rerun()
                     
