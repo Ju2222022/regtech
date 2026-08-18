@@ -3,8 +3,16 @@ import pandas as pd
 import os
 import json
 from datetime import datetime
+import difflib
 
 st.set_page_config(page_title="Legal Card Editor | RegWatch", page_icon="📝", layout="wide")
+
+def get_match_idx(target, options):
+        """Trouve l'index de la meilleure correspondance, même avec une petite faute de frappe."""
+        if not target or not options: return None
+        if target in options: return options.index(target)
+        matches = difflib.get_close_matches(target, options, n=1, cutoff=0.8)
+        return options.index(matches[0]) if matches else None
 
 # ==========================================
 # DATA LOADING
@@ -84,7 +92,7 @@ def main():
     
     with col1:
         all_perimeters = sorted(ontology_df['perimeter'].dropna().unique().tolist()) if 'perimeter' in ontology_df.columns else []
-        def_idx = all_perimeters.index(draft_per) if draft_per in all_perimeters else None
+        def_idx = get_match_idx(draft_per, all_perimeters)
         selected_perimeter = st.selectbox("Perimeter", all_perimeters, index=def_idx, placeholder="Select Perimeter...")
         
     with col2:
@@ -94,7 +102,7 @@ def main():
             filtered_cats = pd.DataFrame()
             
         all_categories = sorted(filtered_cats['category_label'].dropna().unique().tolist()) if 'category_label' in filtered_cats.columns else []
-        def_idx = all_categories.index(draft_cat) if draft_cat in all_categories else None
+        def_idx = get_match_idx(draft_cat, all_categories)
         selected_category = st.selectbox("Category", all_categories, index=def_idx, placeholder="Select Category...")
         
     with col3:
@@ -104,12 +112,12 @@ def main():
             filtered_subcats = pd.DataFrame()
             
         all_subcategories = sorted(filtered_subcats['sub_category_label'].dropna().unique().tolist()) if 'sub_category_label' in filtered_subcats.columns else []
-        def_idx = all_subcategories.index(draft_sub) if draft_sub in all_subcategories else None
+        def_idx = get_match_idx(draft_sub, all_subcategories)
         selected_subcategory = st.selectbox("Sub-Category", all_subcategories, index=def_idx, placeholder="Select Sub-Category...")
 
     with col4:
         available_countries = get_active_countries()
-        def_idx = available_countries.index(draft_mar) if draft_mar in available_countries else None
+        def_idx = get_match_idx(draft_mar, available_countries)
         selected_market = st.selectbox("Target Market", available_countries, index=def_idx, placeholder="Select Market...")
 
     matrix_is_complete = all([selected_perimeter, selected_category, selected_subcategory, selected_market])
