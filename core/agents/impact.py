@@ -1,6 +1,21 @@
 import os
 import json
+import difflib # <-- NOUVEAU : Bibliothèque pour la tolérance aux fautes
 from core.agents.watcher import call_gemini
+
+def is_text_match(text1, text2):
+    """
+    Compare deux textes avec une tolérance aux petites erreurs (espaces, pluriels).
+    Retourne True si les textes sont très similaires (> 85%).
+    """
+    if not text1 or not text2:
+        return False
+    # Vérification classique
+    if text1 in text2 or text2 in text1:
+        return True
+    # Vérification Fuzzy (tolérance aux fautes de frappe comme un 's' en trop)
+    similarity = difflib.SequenceMatcher(None, text1, text2).ratio()
+    return similarity > 0.85
 
 def find_matching_legal_cards(signal_data):
     """
@@ -40,18 +55,17 @@ def find_matching_legal_cards(signal_data):
                         market_match = True
                         break
                         
-                # --- Vérification de l'Ontologie (Category ou Sub-Category) ---
+                # --- Vérification de l'Ontologie avec Tolérance (Fuzzy Match) ---
                 cat_match = False
                 for sc in signal_cats:
-                    # On accepte une correspondance partielle pour ignorer les soucis de parenthèses
-                    if card_cat and (sc in card_cat or card_cat in sc):
+                    # Utilisation de la nouvelle fonction is_text_match
+                    if card_cat and is_text_match(sc, card_cat):
                         cat_match = True
-                    if card_subcat and (sc in card_subcat or card_subcat in sc):
+                    if card_subcat and is_text_match(sc, card_subcat):
                         cat_match = True
 
                 # Si le marché et le noeud de l'ontologie correspondent, c'est la bonne fiche !
                 if market_match and cat_match:
-                    # On évite les doublons au cas où
                     if not any(c['filename'] == filename for c in matched_cards):
                         matched_cards.append({
                             "filename": filename,
