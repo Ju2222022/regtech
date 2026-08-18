@@ -296,7 +296,7 @@ def main():
                         if st.button("✨ Auto-Draft Update in Editor", key=f"draft_{sig_id}_{selected_idx}", type="primary"):
                             with st.spinner("AI is drafting the updated Legal Card..."):
                                 try:
-                                    updated_card = generate_card_update(gemini_key, card_data, result)
+                                    updated_card = generate_card_update(gemini_key, card_data, result, data.get("url", ""))
                                     # NOUVEAU: On envoie le JSON modifié ET l'analyse pour le contexte
                                     st.session_state.draft_update = {
                                         "card": updated_card,
