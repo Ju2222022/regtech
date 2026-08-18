@@ -8,7 +8,7 @@
         "owner": "Julien DLUBALA"
     },
     "identity": {
-        "definition": "Équipements électroniques grand public incluant des fonctions de mesure (cardiofréquencemètres, montres de sport, podomètres) équipés ou non de modules de transmission radio (Bluetooth, WiFi).",
+        "definition": "Consumer electronic equipment including measuring functions (heart rate monitors, sports watches, pedometers) with or without radio transmission modules (Bluetooth, WiFi).",
         "hs_codes": "9102.12.00, 9031.80.00"
     },
     "requirements": [
@@ -16,19 +16,22 @@
             "Type": "Chemical",
             "Parameter": "Hazardous Substances (Lead, Mercury, Cadmium, Hexavalent chromium, PBB, PBDE, Phthalates)",
             "Limit": "0.1% by weight (0.01% for Cadmium)",
-            "Reference": "RoHS Directive 2011/65/EU"
+            "Reference": "RoHS Directive 2011/65/EU",
+            "Source_Link": ""
         },
         {
             "Type": "Environmental",
             "Parameter": "Waste Management",
             "Limit": "EPR Registration and recycling targets",
-            "Reference": "WEEE Directive 2012/19/EU"
+            "Reference": "WEEE Directive 2012/19/EU",
+            "Source_Link": ""
         },
         {
             "Type": "Radio",
             "Parameter": "Spectrum usage & Health/Safety",
             "Limit": "Compliance with harmonized standards for frequency bands",
-            "Reference": "Radio Equipment Directive (RED) 2014/53/EU"
+            "Reference": "Radio Equipment Directive (RED) 2014/53/EU",
+            "Source_Link": ""
         }
     ],
     "markings": [
@@ -49,12 +52,14 @@
         {
             "Document": "EU Declaration of Conformity (DoC)",
             "Description": "States compliance with RED, RoHS, etc. Must be translated into the language of the Member State.",
-            "Retention": "10 years"
+            "Retention": "10 years",
+            "Source_Link": ""
         },
         {
             "Document": "Technical Documentation",
             "Description": "Test reports, schematics, risk assessment.",
-            "Retention": "10 years"
+            "Retention": "10 years",
+            "Source_Link": ""
         }
     ]
 }
