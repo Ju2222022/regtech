@@ -6,10 +6,18 @@ import json
 st.set_page_config(page_title="Dashboard | RegWatch", page_icon="📊", layout="wide")
 
 # ==========================================
-# DATA LOADING
+# DATA LOADING & PATHS
 # ==========================================
 SIGNALS_DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'signals_state.json')
 CARDS_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'legal_cards')
+ONTOLOGY_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'default_ontology.csv')
+POOL_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'regulatory_pool.csv')
+
+@st.cache_data
+def load_csv_data(filepath):
+    if os.path.exists(filepath):
+        return pd.read_csv(filepath)
+    return pd.DataFrame()
 
 def load_signals_data():
     if os.path.exists(SIGNALS_DB_PATH):
@@ -40,10 +48,15 @@ def main():
     st.markdown("Overview of your regulatory intelligence and compliance metrics.")
 
     # --- 1. DATA PREPARATION ---
+    # Load Master CSVs
+    df_ontology = load_csv_data(ONTOLOGY_PATH)
+    df_pool = load_csv_data(POOL_PATH)
+
+    # Load dynamic JSONs
     signals_dict = load_signals_data()
     cards_list = load_cards_data()
 
-    # Convert to DataFrames for easy filtering
+    # Convert to DataFrames
     df_signals = pd.DataFrame(signals_dict.values()) if signals_dict else pd.DataFrame()
     
     cards_flat = []
@@ -57,50 +70,63 @@ def main():
         })
     df_cards = pd.DataFrame(cards_flat) if cards_flat else pd.DataFrame()
 
-    # --- 2. DYNAMIC FILTERS ---
+    # --- 2. DYNAMIC FILTERS (Linked to CSV Masters) ---
     st.markdown("### 🎛️ Dynamic Filters")
-    col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
-        # Combine markets from both signals and cards for a unified filter
-        all_markets = set()
-        if not df_signals.empty and 'market' in df_signals.columns:
-            all_markets.update(df_signals['market'].dropna().unique())
-        if not df_cards.empty and 'market' in df_cards.columns:
-            all_markets.update(df_cards['market'].dropna().unique())
-        selected_market = st.multiselect("🌍 Market", sorted(list(all_markets)))
+    # Ligne 1 : Marché et Criticité
+    col_m, col_p, _ = st.columns([2, 2, 4])
+    with col_m:
+        # Les marchés viennent du pool de surveillance
+        master_markets = sorted(df_pool['Geographic Zone'].dropna().unique().tolist()) if 'Geographic Zone' in df_pool.columns else []
+        selected_market = st.multiselect("🌍 Market (from Regulatory Pool)", master_markets)
 
-    with col2:
-        all_priorities = []
-        if not df_signals.empty and 'priority' in df_signals.columns:
-            all_priorities = sorted(df_signals['priority'].dropna().unique().tolist())
+    with col_p:
+        # La priorité vient des signaux détectés
+        all_priorities = sorted(df_signals['priority'].dropna().unique().tolist()) if not df_signals.empty and 'priority' in df_signals.columns else ["high", "medium", "low"]
         selected_priority = st.multiselect("🚨 Signal Priority", all_priorities)
 
-    with col3:
-        all_perimeters = []
-        if not df_cards.empty and 'perimeter' in df_cards.columns:
-            all_perimeters = sorted(df_cards['perimeter'].dropna().unique().tolist())
-        selected_perimeter = st.multiselect("🏢 Perimeter (Cards)", all_perimeters)
+    # Ligne 2 : Ontologie en cascade (Périmètre > Catégorie > Sous-catégorie)
+    col_per, col_cat, col_sub = st.columns(3)
+    
+    with col_per:
+        master_perimeters = sorted(df_ontology['perimeter'].dropna().unique().tolist()) if not df_ontology.empty and 'perimeter' in df_ontology.columns else []
+        selected_perimeter = st.multiselect("🏢 Perimeter", master_perimeters)
         
-    with col4:
-        all_categories = []
-        if not df_cards.empty and 'category' in df_cards.columns:
-            if selected_perimeter:
-                # Dynamic cascading filter: only show categories for the selected perimeter
-                all_categories = sorted(df_cards[df_cards['perimeter'].isin(selected_perimeter)]['category'].dropna().unique().tolist())
-            else:
-                all_categories = sorted(df_cards['category'].dropna().unique().tolist())
-        selected_category = st.multiselect("📁 Category (Cards)", all_categories)
+    with col_cat:
+        if selected_perimeter:
+            filtered_onto_cat = df_ontology[df_ontology['perimeter'].isin(selected_perimeter)]
+        else:
+            filtered_onto_cat = df_ontology
+        
+        master_categories = sorted(filtered_onto_cat['category_label'].dropna().unique().tolist()) if not filtered_onto_cat.empty and 'category_label' in filtered_onto_cat.columns else []
+        selected_category = st.multiselect("📁 Category", master_categories)
+
+    with col_sub:
+        if selected_category:
+            filtered_onto_sub = df_ontology[df_ontology['category_label'].isin(selected_category)]
+        elif selected_perimeter:
+            filtered_onto_sub = df_ontology[df_ontology['perimeter'].isin(selected_perimeter)]
+        else:
+            filtered_onto_sub = df_ontology
+            
+        master_subcategories = sorted(filtered_onto_sub['sub_category_label'].dropna().unique().tolist()) if not filtered_onto_sub.empty and 'sub_category_label' in filtered_onto_sub.columns else []
+        selected_subcategory = st.multiselect("📄 Sub-Category", master_subcategories)
 
     st.divider()
 
     # --- 3. APPLY FILTERS TO DATAFRAMES ---
+    # Filtrage des signaux
     if not df_signals.empty:
         if selected_market:
             df_signals = df_signals[df_signals['market'].apply(lambda x: any(m in str(x) for m in selected_market))]
         if selected_priority:
             df_signals = df_signals[df_signals['priority'].isin(selected_priority)]
+        # Pour les signaux, la liaison avec l'ontologie est moins stricte (texte brut), on filtre si des catégories matchent
+        if selected_category or selected_subcategory:
+            search_terms = set((selected_category or []) + (selected_subcategory or []))
+            df_signals = df_signals[df_signals['categories'].apply(lambda cats: any(term in str(cats) for term in search_terms)) | df_signals['categories'].apply(len) == 0]
 
+    # Filtrage des fiches légales (strict)
     if not df_cards.empty:
         if selected_market:
             df_cards = df_cards[df_cards['market'].isin(selected_market)]
@@ -108,8 +134,10 @@ def main():
             df_cards = df_cards[df_cards['perimeter'].isin(selected_perimeter)]
         if selected_category:
             df_cards = df_cards[df_cards['category'].isin(selected_category)]
+        if selected_subcategory:
+            df_cards = df_cards[df_cards['sub_category'].isin(selected_subcategory)]
 
-    # --- 4. CALCULATE KPIS (Based on filtered data) ---
+    # --- 4. CALCULATE KPIS ---
     total_signals = len(df_signals)
     inbox_signals = len(df_signals[df_signals['status'] == 'inbox']) if not df_signals.empty and 'status' in df_signals.columns else 0
     bookmarked_signals = len(df_signals[df_signals['status'] == 'bookmark']) if not df_signals.empty and 'status' in df_signals.columns else 0
