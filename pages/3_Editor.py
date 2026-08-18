@@ -234,9 +234,16 @@ def main():
                 save_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'legal_cards')
                 os.makedirs(save_dir, exist_ok=True)
                 
-                safe_cat = str(selected_subcategory).replace(" ", "_").replace("/", "-")
+                # RECHERCHE DE L'ID DE CATEGORIE
+                cat_id = "UNKNOWN_ID"
+                if not ontology_df.empty and selected_subcategory:
+                    match = ontology_df[ontology_df['sub_category_label'] == selected_subcategory]
+                    if not match.empty and 'category_id' in match.columns:
+                        cat_id = str(match['category_id'].iloc[0])
+                
+                # NOUVEAU FORMAT DE NOM DE FICHIER : CAT_ID_MARKET.json
                 safe_market = str(selected_market).replace(" ", "_").replace("/", "-")
-                filename = f"{safe_cat}_{safe_market}.json"
+                filename = f"{cat_id}_{safe_market}.json"
                 file_path = os.path.join(save_dir, filename)
                 
                 with open(file_path, "w", encoding="utf-8") as f:
